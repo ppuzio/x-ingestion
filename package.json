@@ -11,6 +11,7 @@
     "preview": "node --env-file-if-exists=.env src/cli/build-preview.ts",
     "preview:enrich": "node --env-file-if-exists=.env src/cli/build-preview.ts --enrich",
     "triage:relevance": "node --env-file-if-exists=.env src/cli/triage-relevance.ts",
+    "verify:relevance": "node --env-file-if-exists=.env src/cli/verify-relevance.ts",
     "audit:concepts": "node --env-file-if-exists=.env src/cli/audit-concepts.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test src/**/*.test.ts",

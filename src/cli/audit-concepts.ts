@@ -334,7 +334,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const reportPath = resolve("data/obsidian-preview/_Concept Audit.md");
+  const reportPath = resolve("data/obsidian-preview/_Concept_Audit.md");
   await writeFile(
     reportPath,
     renderReport(snapshot, model, synthesisVersion, items, proposals),

@@ -4,6 +4,11 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 type JsonObject = Record<string, unknown>;
 
+export interface UrlCitation {
+  url: string;
+  title?: string;
+}
+
 function object(value: unknown): JsonObject | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
@@ -16,13 +21,28 @@ function strings(value: unknown): string[] | undefined {
     : undefined;
 }
 
+export function parseUrlCitations(value: unknown): UrlCitation[] {
+  if (!Array.isArray(value)) return [];
+  const citations = value.flatMap((item) => {
+    const citation = object(object(item)?.url_citation);
+    const url = citation?.url;
+    const title = citation?.title;
+    if (typeof url !== "string" || !/^https?:\/\//.test(url)) return [];
+    return [
+      typeof title === "string" && title.trim() ? { url, title } : { url },
+    ];
+  });
+  return [...new Map(citations.map((citation) => [citation.url, citation])).values()];
+}
+
 export async function requestStructuredJson(
   apiKey: string,
   model: string,
   content: unknown[],
   schemaName: string,
   schema: JsonObject,
-): Promise<{ parsed: unknown; rawResponse: unknown }> {
+  options: { webSearch?: boolean } = {},
+): Promise<{ parsed: unknown; rawResponse: unknown; citations: UrlCitation[] }> {
   const response = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
@@ -39,6 +59,21 @@ export async function requestStructuredJson(
         json_schema: { name: schemaName, strict: true, schema },
       },
       provider: { require_parameters: true },
+      ...(options.webSearch
+        ? {
+            tools: [
+              {
+                type: "openrouter:web_search",
+                parameters: {
+                  engine: "parallel",
+                  mode: "fast",
+                  max_results: 5,
+                },
+              },
+            ],
+            max_tool_calls: 1,
+          }
+        : {}),
     }),
   });
   const rawText = await response.text();
@@ -62,7 +97,11 @@ export async function requestStructuredJson(
   }
 
   try {
-    return { parsed: JSON.parse(messageContent), rawResponse };
+    return {
+      parsed: JSON.parse(messageContent),
+      rawResponse,
+      citations: parseUrlCitations(message?.annotations),
+    };
   } catch {
     throw new Error("OpenRouter model output was not valid JSON");
   }

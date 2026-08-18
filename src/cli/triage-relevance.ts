@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 
 import {
   RELEVANCE_TRIAGE_VERSION,
+  oldestFirst,
   parseRelevanceAssessments,
   triageRelevance,
   type RelevanceAssessment,
@@ -45,7 +46,7 @@ function report(
   const byId = new Map(posts.map((post) => [post.id, post]));
   const headings: Record<RelevanceStatus, string> = {
     time_sensitive: "Needs web verification",
-    low_signal: "Low signal",
+    non_knowledge: "Not knowledge content",
     unclear: "Unclear without more context",
     durable: "Durable",
   };
@@ -61,7 +62,7 @@ function report(
   ];
   for (const status of [
     "time_sensitive",
-    "low_signal",
+    "non_knowledge",
     "unclear",
     "durable",
   ] satisfies RelevanceStatus[]) {
@@ -89,7 +90,7 @@ async function main(): Promise<void> {
     : Number.POSITIVE_INFINITY;
   if (!(limit > 0)) throw new Error("--limit must be a positive integer");
 
-  const allPosts = await loadSnapshots(await latestSnapshots());
+  const allPosts = oldestFirst(await loadSnapshots(await latestSnapshots()));
   const posts = allPosts.slice(0, limit);
   const apiKey = process.env.OPENROUTER_KEY?.trim();
   if (!apiKey) throw new Error("Missing OPENROUTER_KEY");
@@ -145,7 +146,7 @@ async function main(): Promise<void> {
   }
 
   const ordered = posts.map((post) => assessments.get(post.id)!);
-  const reportPath = resolve("data/obsidian-preview/_Relevance Triage.md");
+  const reportPath = resolve("data/obsidian-preview/_Relevance_Triage.md");
   await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(reportPath, report(posts, ordered, model, allPosts.length), "utf8");
   console.log(

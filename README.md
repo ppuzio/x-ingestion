@@ -37,6 +37,7 @@ OPENROUTER_VISION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRANSLATION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_SYNTHESIS_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRIAGE_MODEL=qwen/qwen3-vl-32b-instruct
+OPENROUTER_VERIFICATION_MODEL=qwen/qwen3-vl-32b-instruct
 ```
 
 Despite the variable's original name, `X_BEARER_TOKEN` must contain the OAuth
@@ -145,10 +146,23 @@ npm run triage:relevance
 npm run triage:relevance -- --limit=20
 ```
 
-It classifies posts as `durable`, `time_sensitive`, `low_signal`, or `unclear`
-and writes `_Relevance Triage.md`. It never deletes or hides content. Only
-`time_sensitive` items receive a suggested query for a later evidence-backed
-web verification step; no web search is performed by this command.
+It classifies posts as `durable`, `time_sensitive`, `non_knowledge`, or `unclear`
+and writes `_Relevance_Triage.md`, processing the oldest posts first. It never
+deletes or hides content. Only
+`time_sensitive` items receive a suggested query; no web search is performed
+by this command. Attached media does not make otherwise useful text unclear;
+missing media or links only prevent a `non_knowledge` verdict.
+
+Verify those candidates using OpenRouter web search:
+
+```bash
+npm run verify:relevance
+npm run verify:relevance -- --limit=3
+```
+
+Results are cached per day and written to `_Relevance_Verification.md` with
+source links. Factual verdicts without citations are rejected. Opinion is kept
+separate from `current`/`superseded`, and this step also never deletes content.
 
 Post synthesis consumes normalized text plus completed translation and visual
 extractions. It produces cached, runtime-validated JSON for summaries, topics,
@@ -166,7 +180,7 @@ npm run audit:concepts
 ```
 
 The command makes one cached structured call using the synthesis model and
-writes `_Concept Audit.md` beside the preview notes. It proposes at most 30
+writes `_Concept_Audit.md` beside the preview notes. It proposes at most 30
 high-confidence merges, renames, and candidates that should remain plain text.
 Unknown, cross-category, duplicate, and otherwise invalid rows are rejected
 before rendering. It never changes notes or wikilinks, and every surviving
