@@ -1,0 +1,24 @@
+{
+  "aliases": {
+    "topic": {
+      "agent-based computing": "AI agents",
+      "software engineering": "software development",
+      "code maintenance": "code quality",
+      "workflow management": "Productivity Automation",
+      "AI agent orchestration": "AI Agent Orchestration",
+      "AI coding agents": "AI Coding Agents"
+    },
+    "concept": {
+      "task boundary definition": "task decomposition",
+      "strict linting rules": "code quality enforcement",
+      "program design before code generation": "agent-assisted development",
+      "sub-agent configuration": "configuration file management"
+    }
+  },
+  "plainText": {
+    "concept": [
+      "turning grilling sessions into shareable questionnaires",
+      "effort multiplication through depth"
+    ]
+  }
+}

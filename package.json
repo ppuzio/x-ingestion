@@ -1,0 +1,25 @@
+{
+  "name": "x-likes-ingestion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "fetch:x": "node --env-file-if-exists=.env src/cli/fetch-likes.ts",
+    "fetch:thread": "node --env-file-if-exists=.env src/cli/fetch-thread.ts",
+    "preview": "node --env-file-if-exists=.env src/cli/build-preview.ts",
+    "preview:enrich": "node --env-file-if-exists=.env src/cli/build-preview.ts --enrich",
+    "triage:relevance": "node --env-file-if-exists=.env src/cli/triage-relevance.ts",
+    "verify:relevance": "node --env-file-if-exists=.env src/cli/verify-relevance.ts",
+    "audit:concepts": "node --env-file-if-exists=.env src/cli/audit-concepts.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/**/*.test.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "typescript": "^5.9.2"
+  }
+}
