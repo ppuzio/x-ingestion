@@ -7,6 +7,7 @@ import {
   parseRelevanceAssessments,
   protectMissingContext,
   protectOldEvolvingClaims,
+  relevanceSource,
 } from "./triage-relevance.ts";
 
 test("validates relevance triage IDs and web-check invariants", () => {
@@ -149,4 +150,58 @@ test("forces old comparative runtime claims into web verification", () => {
   );
   assert.equal(assessment?.status, "time_sensitive");
   assert.match(assessment?.webQuery ?? "", /2026/);
+});
+
+test("labels the parent of a short reply as interpretation context", () => {
+  const source = relevanceSource({
+    id: "2",
+    url: "https://x.com/author/status/2",
+    capturedAt: "2026-01-01T00:00:00Z",
+    author: { id: "20", username: "author" },
+    fragments: [{ kind: "text", source: "post", text: "This is my day job" }],
+    relationships: [
+      {
+        type: "replied_to",
+        postId: "1",
+        url: "https://x.com/i/web/status/1",
+        text: "Which framework has the best accessibility support?",
+      },
+    ],
+    captureMethods: ["like"],
+    rawSources: [],
+  });
+  assert.match(source, /PARENT REPLY CONTEXT/);
+  assert.match(source, /best accessibility support/);
+});
+
+test("routes an old short reply through verification when its parent asks about current tooling", () => {
+  const posts = [
+    {
+      id: "2",
+      createdAt: "2022-04-24T18:52:24Z",
+      fragments: [{ kind: "text", source: "post", text: "This is my day job" }],
+      relationships: [
+        {
+          type: "replied_to",
+          postId: "1",
+          text: "Which current JavaScript framework has the best accessibility support?",
+        },
+      ],
+    },
+  ] as SavedPost[];
+  const [assessment] = protectOldEvolvingClaims(
+    posts,
+    [
+      {
+        postId: "2",
+        status: "durable",
+        reason: "A durable answer.",
+        needsWebCheck: false,
+        webQuery: null,
+      },
+    ],
+    "2026-08-19",
+  );
+  assert.equal(assessment?.status, "time_sensitive");
+  assert.match(assessment?.webQuery ?? "", /accessibility/);
 });

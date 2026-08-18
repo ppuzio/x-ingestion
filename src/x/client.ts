@@ -100,6 +100,13 @@ export interface FetchUserPostsOptions {
   paginationToken?: string;
 }
 
+export interface FetchConversationOptions {
+  bearerToken: string;
+  conversationId: string;
+  username: string;
+  maxResults?: number;
+}
+
 export class XApiError extends Error {
   readonly status: number;
 
@@ -162,31 +169,47 @@ export function buildUserPostsUrl(
   const url = new URL(`${API_BASE_URL}/users/${userId}/${endpoint}`);
   url.searchParams.set("max_results", String(maxResults));
   if (paginationToken) url.searchParams.set("pagination_token", paginationToken);
+  setPostParameters(url);
+  return url;
+}
+
+function setPostParameters(url: URL): void {
   url.searchParams.set("post.fields", POST_FIELDS.join(","));
   url.searchParams.set("expansions", EXPANSIONS.join(","));
   url.searchParams.set("user.fields", USER_FIELDS.join(","));
   url.searchParams.set("media.fields", MEDIA_FIELDS.join(","));
   url.searchParams.set("poll.fields", POLL_FIELDS.join(","));
   url.searchParams.set("place.fields", PLACE_FIELDS.join(","));
+}
+
+export function buildConversationSearchUrl(
+  conversationId: string,
+  username: string,
+  maxResults = 100,
+): URL {
+  if (!/^\d{1,19}$/.test(conversationId)) {
+    throw new Error("X conversation ID must contain 1-19 digits");
+  }
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(username)) {
+    throw new Error("X username must contain 1-15 letters, digits, or underscores");
+  }
+  if (!Number.isInteger(maxResults) || maxResults < 10 || maxResults > 500) {
+    throw new Error("maxResults must be an integer from 10 to 500");
+  }
+  const url = new URL(`${API_BASE_URL}/tweets/search/all`);
+  url.searchParams.set("query", `conversation_id:${conversationId} from:${username}`);
+  url.searchParams.set("max_results", String(maxResults));
+  setPostParameters(url);
   return url;
 }
 
-export async function fetchUserPostsRaw({
-  bearerToken,
-  userId,
-  collection,
-  maxResults = 100,
-  paginationToken,
-}: FetchUserPostsOptions): Promise<string> {
-  const response = await fetch(
-    buildUserPostsUrl(userId, collection, maxResults, paginationToken),
-    {
+async function fetchRaw(url: URL, bearerToken: string): Promise<string> {
+  const response = await fetch(url, {
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${bearerToken}`,
     },
-    },
-  );
+  });
   const body = await response.text();
 
   if (!response.ok) {
@@ -201,6 +224,30 @@ export async function fetchUserPostsRaw({
   } catch {
     throw new Error("X API returned a successful response that was not valid JSON");
   }
-
   return body;
+}
+
+export async function fetchUserPostsRaw({
+  bearerToken,
+  userId,
+  collection,
+  maxResults = 100,
+  paginationToken,
+}: FetchUserPostsOptions): Promise<string> {
+  return fetchRaw(
+    buildUserPostsUrl(userId, collection, maxResults, paginationToken),
+    bearerToken,
+  );
+}
+
+export async function fetchConversationRaw({
+  bearerToken,
+  conversationId,
+  username,
+  maxResults = 100,
+}: FetchConversationOptions): Promise<string> {
+  return fetchRaw(
+    buildConversationSearchUrl(conversationId, username, maxResults),
+    bearerToken,
+  );
 }

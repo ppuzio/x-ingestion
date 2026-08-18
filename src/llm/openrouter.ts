@@ -2,6 +2,7 @@ import { object, strings, type JsonObject } from "../json.ts";
 import type { ImageExtraction, Translation } from "../model.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_TIMEOUT_MS = 2 * 60 * 1_000;
 
 export interface UrlCitation {
   url: string;
@@ -39,6 +40,7 @@ async function requestOpenRouter(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
   });
   const rawText = await response.text();
   if (!response.ok) {

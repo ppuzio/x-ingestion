@@ -11,11 +11,13 @@ import {
   RELEVANCE_EVIDENCE_VERSION,
   RELEVANCE_VERIFICATION_VERSION,
   classifyRelevance,
+  finalRelevanceStatus,
   parseRelevanceVerification,
   protectVerification,
   researchRelevance,
   requireVerificationEvidence,
   type RelevanceVerification,
+  type FinalRelevanceStatus,
   type VerificationVerdict,
 } from "../llm/verify-relevance.ts";
 import type { SavedPost } from "../model.ts";
@@ -100,6 +102,79 @@ function report(
   return `${lines.join("\n")}\n`;
 }
 
+function auditReport(
+  rows: Array<{
+    post: SavedPost;
+    assessment: RelevanceAssessment;
+    verification?: RelevanceVerification;
+    citations: UrlCitation[];
+  }>,
+  model: string,
+  totalPosts: number,
+  date: string,
+): string {
+  const headings: Record<FinalRelevanceStatus, string> = {
+    superseded: "Superseded",
+    partly_current: "Partly current",
+    current: "Current",
+    opinion: "Opinion, not a freshness claim",
+    durable: "Durable",
+    unclear: "Unclear after verification",
+    needs_context: "Needs context",
+    non_knowledge: "Not knowledge content",
+    needs_verification: "Needs web verification",
+  };
+  const statuses = [
+    "superseded",
+    "partly_current",
+    "current",
+    "opinion",
+    "durable",
+    "unclear",
+    "needs_context",
+    "non_knowledge",
+    "needs_verification",
+  ] satisfies FinalRelevanceStatus[];
+  const lines = [
+    "# Relevance audit",
+    "",
+    "This is the authoritative relevance view. Triage only routes potentially time-sensitive posts; an evidence-backed verification verdict replaces that preliminary label.",
+    "Nothing is deleted or hidden.",
+    "",
+    `- Assessed: ${rows.length} of ${totalPosts} posts`,
+    `- Web-verified: ${rows.filter(({ verification }) => verification).length}`,
+    `- Checked: ${date}`,
+    `- Verification model: \`${model}\``,
+    `- Triage prompt: \`${RELEVANCE_TRIAGE_VERSION}\``,
+    `- Verification prompt: \`${RELEVANCE_VERIFICATION_VERSION}\``,
+  ];
+  for (const status of statuses) {
+    const matches = rows.filter(
+      ({ assessment, verification }) =>
+        finalRelevanceStatus(assessment, verification) === status,
+    );
+    lines.push("", `## ${headings[status]} (${matches.length})`, "");
+    if (!matches.length) {
+      lines.push("- None");
+      continue;
+    }
+    for (const { post, assessment, verification, citations } of matches) {
+      lines.push(
+        `- [${reportTitle(post).replaceAll("]", "\\]")}](${post.url}) — ${verification?.reason ?? assessment.reason}`,
+        ...(verification
+          ? [`  - Current guidance: ${verification.currentGuidance}`]
+          : []),
+        ...citations.filter(
+          ({ url }) => verification?.evidenceUrls.includes(url),
+        ).map(
+          ({ url, title }) => `  - Source: [${(title || url).replaceAll("]", "\\]")}](${url})`,
+        ),
+      );
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 async function main(): Promise<void> {
   const postArgument = process.argv.find((argument) => argument.startsWith("--post="));
   const postId = postArgument?.slice("--post=".length);
@@ -122,11 +197,14 @@ async function main(): Promise<void> {
     modelDirectory(triageModel),
   );
   const date = new Date().toISOString().slice(0, 10);
-  const eligible: Array<{ post: SavedPost; assessment: RelevanceAssessment }> = [];
+  const triaged: Array<{ post: SavedPost; assessment: RelevanceAssessment }> = [];
   for (const post of posts) {
     const assessment = await loadCachedAssessment(triageRoot, post, date);
-    if (assessment?.status === "time_sensitive") eligible.push({ post, assessment });
+    if (assessment) triaged.push({ post, assessment });
   }
+  const eligible = triaged.filter(
+    ({ assessment }) => assessment.status === "time_sensitive",
+  );
   if (!eligible.length) {
     throw new Error("No time-sensitive triage results found; run npm run triage:relevance first");
   }
@@ -217,10 +295,32 @@ async function main(): Promise<void> {
   }
 
   const reportPath = resolve("data/obsidian-preview/_Relevance_Verification.md");
+  const auditPath = resolve("data/obsidian-preview/_Relevance_Audit.md");
   await mkdir(dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, report(rows, model, eligible.length, date), "utf8");
+  const verifiedById = new Map(rows.map((row) => [row.post.id, row]));
+  await Promise.all([
+    writeFile(reportPath, report(rows, model, eligible.length, date), "utf8"),
+    writeFile(
+      auditPath,
+      auditReport(
+        triaged.map(({ post, assessment }) => {
+          const row = verifiedById.get(post.id);
+          return {
+            post,
+            assessment,
+            ...(row?.verification ? { verification: row.verification } : {}),
+            citations: row?.citations ?? [],
+          };
+        }),
+        model,
+        posts.length,
+        date,
+      ),
+      "utf8",
+    ),
+  ]);
   console.log(
-    `Verified ${rows.length} posts (${created} new classifications, ${searched} new searches) and wrote ${reportPath}`,
+    `Verified ${rows.length} posts (${created} new classifications, ${searched} new searches) and wrote ${reportPath} plus ${auditPath}`,
   );
 }
 

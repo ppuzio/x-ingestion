@@ -32,6 +32,7 @@ X_BEARER_TOKEN=your_token_here
 X_USER_ID=your_numeric_user_id
 X_REFRESH_TOKEN=your_refresh_token
 X_CLIENT_ID=your_oauth_2_client_id
+X_ARCHIVE_BEARER_TOKEN=your_optional_app_only_bearer_token
 OPENROUTER_KEY=your_openrouter_key
 OPENROUTER_VISION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRANSLATION_MODEL=qwen/qwen3-vl-32b-instruct
@@ -48,6 +49,11 @@ Developer Console. Do not commit it.
 OAuth access tokens expire. With `offline.access` authorized, X also issues a
 refresh token; after a `401`, the fetch command uses it once, updates the
 ignored `.env` atomically, and retries the request.
+
+Historical same-author thread reconstruction uses X full-archive search, which
+rejects OAuth user-context tokens. `X_ARCHIVE_BEARER_TOKEN` is therefore an
+optional, separate app-only token; likes and bookmarks continue to use
+`X_BEARER_TOKEN`.
 
 ## Fetch likes and bookmarks
 
@@ -97,6 +103,19 @@ referenced posts), pagination information under `meta`, and possibly an
 canonical records are generated separately and retain pointers to every raw
 source. Posts present in both collections are deduplicated by X post ID and
 record both `like` and `bookmark` under `capture_methods`.
+
+For a known multi-post thread, optionally fetch only that conversation's posts
+from the focal author:
+
+```bash
+npm run fetch:thread -- --post=1496273922714902528
+```
+
+This calls `GET https://api.x.com/2/tweets/search/all` with
+`query=conversation_id:{conversation_id} from:{username}` and requires
+`X_ARCHIVE_BEARER_TOKEN` plus full-archive access. The raw response is saved as
+`data/raw/thread-{post_id}-{timestamp}.json`; normalization retains at most 25
+same-author replies reachable from the saved post and ignores side replies.
 
 See X's official [Get Users Liked Posts reference](https://docs.x.com/x-api/users/get-liked-posts),
 [Get Bookmarks reference](https://docs.x.com/x-api/users/get-bookmarks),
@@ -148,7 +167,7 @@ npm run triage:relevance -- --limit=20
 ```
 
 It classifies posts as `durable`, `time_sensitive`, `non_knowledge`, or `unclear`
-and writes `_Relevance_Triage.md`, processing the oldest posts first. It never
+and writes diagnostic `_Relevance_Triage.md`, processing the oldest posts first. It never
 deletes or hides content. Only
 `time_sensitive` items receive a suggested query; no web search is performed
 by this command. Attached media does not make otherwise useful text unclear;
@@ -163,8 +182,10 @@ npm run verify:relevance -- --post=1500196959235227648 --refresh-evidence
 ```
 
 Search evidence and classifications are cached separately, so changing
-`OPENROUTER_VERIFICATION_MODEL` reuses the same searches. Results are written
-to `_Relevance_Verification.md` with up to three selected source links. Factual
+`OPENROUTER_VERIFICATION_MODEL` reuses the same searches. Detailed results are
+written to diagnostic `_Relevance_Verification.md`; `_Relevance_Audit.md` is
+the authoritative combined view in which verification replaces preliminary
+triage labels. Reports include up to three selected source links. Factual
 verdicts without citations are rejected. Opinion is kept
 separate from `current`/`superseded`, and this step also never deletes content.
 

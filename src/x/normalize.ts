@@ -236,12 +236,14 @@ export function normalizeLikesResponse(
       ];
     });
     const createdAt = string(post.created_at);
+    const conversationId = string(post.conversation_id);
 
     return {
       id,
       url: author.username
         ? `https://x.com/${author.username}/status/${id}`
         : `https://x.com/i/web/status/${id}`,
+      ...(conversationId ? { conversationId } : {}),
       ...(createdAt ? { createdAt } : {}),
       capturedAt,
       author,
@@ -251,6 +253,57 @@ export function normalizeLikesResponse(
       rawSources: [{ method: captureMethod, snapshot: rawSnapshot, post }],
     };
   });
+}
+
+export function normalizeThreadResponse(
+  input: unknown,
+  focalPost: SavedPost,
+): PostRelationship[] {
+  const response = object(input);
+  if (!response || (response.data !== undefined && !Array.isArray(response.data))) {
+    throw new Error("Raw X thread response data must be an array when present");
+  }
+  const users = new Map(
+    objects(object(response.includes)?.users).flatMap((user) => {
+      const id = string(user.id);
+      return id ? [[id, user] as const] : [];
+    }),
+  );
+  const candidates = objects(response.data)
+    .filter((post) => string(post.author_id) === focalPost.author.id)
+    .sort((a, b) =>
+      (string(a.created_at) ?? "").localeCompare(string(b.created_at) ?? ""),
+    );
+  const reachable = new Set([focalPost.id]);
+  const continuations: PostRelationship[] = [];
+  for (const post of candidates) {
+    const id = string(post.id);
+    const parentId = objects(post.referenced_posts).find(
+      (reference) => string(reference.type) === "replied_to",
+    );
+    if (!id || id === focalPost.id || !reachable.has(string(parentId?.id) ?? "")) {
+      continue;
+    }
+    const authorId = string(post.author_id)!;
+    const author = authorFrom(users.get(authorId), authorId);
+    const text = string(object(post.note_post)?.text) ?? string(post.text);
+    const language = string(post.lang);
+    const createdAt = string(post.created_at);
+    continuations.push({
+      type: "thread_continuation",
+      postId: id,
+      url: author.username
+        ? `https://x.com/${author.username}/status/${id}`
+        : `https://x.com/i/web/status/${id}`,
+      ...(text ? { text } : {}),
+      ...(language ? { language } : {}),
+      ...(createdAt ? { createdAt } : {}),
+      author,
+    });
+    reachable.add(id);
+    if (continuations.length === 25) break;
+  }
+  return continuations;
 }
 
 export function mergeSavedPosts(posts: SavedPost[]): SavedPost[] {

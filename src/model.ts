@@ -99,12 +99,14 @@ export interface PostRelationship {
   url: string;
   text?: string;
   language?: string;
+  createdAt?: string;
   author?: SavedAuthor;
 }
 
 export interface SavedPost {
   id: string;
   url: string;
+  conversationId?: string;
   createdAt?: string;
   capturedAt: string;
   author: SavedAuthor;

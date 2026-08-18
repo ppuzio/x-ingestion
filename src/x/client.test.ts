@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fetchUserPostsRaw, refreshXUserToken } from "./client.ts";
+import {
+  buildConversationSearchUrl,
+  fetchUserPostsRaw,
+  refreshXUserToken,
+} from "./client.ts";
 
 test("fetches the requested fields and returns the response body unchanged", async () => {
   const originalFetch = globalThis.fetch;
@@ -32,6 +36,16 @@ test("fetches the requested fields and returns the response body unchanged", asy
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("restricts full-archive thread search to one conversation and author", () => {
+  const url = buildConversationSearchUrl("1496273922714902528", "SeaRyanC");
+  assert.equal(url.pathname, "/2/tweets/search/all");
+  assert.equal(
+    url.searchParams.get("query"),
+    "conversation_id:1496273922714902528 from:SeaRyanC",
+  );
+  assert.equal(url.searchParams.get("max_results"), "100");
 });
 
 test("fetches a bookmarks page with a pagination token", async () => {

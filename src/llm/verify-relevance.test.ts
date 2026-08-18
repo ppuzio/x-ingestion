@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { parseUrlCitations } from "./openrouter.ts";
 import {
+  finalRelevanceStatus,
   parseRelevanceVerification,
   protectBroadReplacement,
   protectIncompleteThread,
@@ -112,4 +113,26 @@ test("applies current ESLint evidence to return-await guidance", () => {
   );
   assert.equal(verification.verdict, "partly_current");
   assert.match(verification.currentGuidance, /deprecated/);
+});
+
+test("uses verification as the final status instead of exposing triage disagreement", () => {
+  assert.equal(
+    finalRelevanceStatus(
+      {
+        postId: "1",
+        status: "time_sensitive",
+        reason: "Needs a check.",
+        needsWebCheck: true,
+        webQuery: "current documentation",
+      },
+      {
+        postId: "1",
+        verdict: "current",
+        reason: "Confirmed.",
+        currentGuidance: "Keep it.",
+        evidenceUrls: ["https://example.com"],
+      },
+    ),
+    "current",
+  );
 });

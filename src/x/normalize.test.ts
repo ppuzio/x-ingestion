@@ -5,7 +5,11 @@ import { shouldArchiveVideo } from "../model.ts";
 import type { ArticleFragment, MediaFragment, TextFragment } from "../model.ts";
 import { synthesisSource } from "../llm/enrich-post.ts";
 import { normalizeTopicCase, renderObsidianNote } from "../obsidian/render.ts";
-import { mergeSavedPosts, normalizeLikesResponse } from "./normalize.ts";
+import {
+  mergeSavedPosts,
+  normalizeLikesResponse,
+  normalizeThreadResponse,
+} from "./normalize.ts";
 
 test("normalizes mixed X content into replayable fragments and renders it", () => {
   const raw = {
@@ -263,4 +267,48 @@ test("keeps a multi-line article title on one line in the note and filename", ()
   assert.equal(note.title, "Line one line two");
   assert.equal(note.filename, "Line one line two -- 10.md");
   assert.match(note.markdown, /\n# Line one line two\n/);
+});
+
+test("keeps only the focal author's reachable thread continuation", () => {
+  const focal = {
+    id: "1",
+    author: { id: "20", username: "author" },
+  } as never;
+  const relationships = normalizeThreadResponse(
+    {
+      data: [
+        {
+          id: "2",
+          author_id: "20",
+          text: "second",
+          created_at: "2022-01-01T00:02:00Z",
+          referenced_posts: [{ id: "1", type: "replied_to" }],
+        },
+        {
+          id: "4",
+          author_id: "20",
+          text: "side reply",
+          created_at: "2022-01-01T00:04:00Z",
+          referenced_posts: [{ id: "99", type: "replied_to" }],
+        },
+        {
+          id: "3",
+          author_id: "20",
+          text: "third",
+          created_at: "2022-01-01T00:03:00Z",
+          referenced_posts: [{ id: "2", type: "replied_to" }],
+        },
+        {
+          id: "5",
+          author_id: "30",
+          text: "someone else",
+          created_at: "2022-01-01T00:05:00Z",
+          referenced_posts: [{ id: "3", type: "replied_to" }],
+        },
+      ],
+      includes: { users: [{ id: "20", username: "author" }] },
+    },
+    focal,
+  );
+  assert.deepEqual(relationships.map(({ postId }) => postId), ["2", "3"]);
 });

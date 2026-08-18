@@ -2,7 +2,11 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 import type { CaptureMethod, SavedPost } from "../model.ts";
-import { mergeSavedPosts, normalizeLikesResponse } from "./normalize.ts";
+import {
+  mergeSavedPosts,
+  normalizeLikesResponse,
+  normalizeThreadResponse,
+} from "./normalize.ts";
 
 export const snapshotPattern = /^(likes|bookmarks)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:-page-\d{3})?\.json$/;
 
@@ -40,7 +44,7 @@ function captureMethod(path: string): CaptureMethod {
 }
 
 export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
-  return mergeSavedPosts(
+  const posts = mergeSavedPosts(
     (
       await Promise.all(
         paths.map(async (path) =>
@@ -54,4 +58,14 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
       )
     ).flat(),
   );
+  const directory = resolve("data/raw");
+  const names = await readdir(directory);
+  for (const post of posts) {
+    const prefix = `thread-${post.id}-`;
+    const latest = names.filter((name) => name.startsWith(prefix)).sort().at(-1);
+    if (!latest) continue;
+    const response = JSON.parse(await readFile(resolve(directory, latest), "utf8"));
+    post.relationships.push(...normalizeThreadResponse(response, post));
+  }
+  return posts;
 }
