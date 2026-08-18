@@ -51,9 +51,13 @@ function cachedCitations(value: unknown): UrlCitation[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     if (!item || typeof item !== "object") return [];
-    const { url, title } = item as Record<string, unknown>;
+    const { url, title, content } = item as Record<string, unknown>;
     if (typeof url !== "string" || !/^https?:\/\//.test(url)) return [];
-    return [typeof title === "string" && title.trim() ? { url, title } : { url }];
+    return [{
+      url,
+      ...(typeof title === "string" && title.trim() ? { title } : {}),
+      ...(typeof content === "string" && content.trim() ? { content } : {}),
+    }];
   });
 }
 
@@ -101,7 +105,7 @@ function report(
       lines.push(
         `- [${titleFor(post).replaceAll("]", "\\]")}](${post.url}) — ${verification.reason}`,
         `  - Current guidance: ${verification.currentGuidance}`,
-        ...citations.map(
+        ...citations.filter(({ url }) => verification.evidenceUrls.includes(url)).map(
           ({ url, title }) => `  - Source: [${(title || url).replaceAll("]", "\\]")}](${url})`,
         ),
       );
@@ -172,7 +176,14 @@ async function main(): Promise<void> {
       rows.push({ post, verification, citations });
       continue;
     }
-    const result = await verifyRelevance(apiKey, model, post, assessment, date);
+    let result: Awaited<ReturnType<typeof verifyRelevance>>;
+    try {
+      result = await verifyRelevance(apiKey, model, post, assessment, date);
+    } catch (error) {
+      throw new Error(
+        `Post ${post.id}: ${error instanceof Error ? error.message : error}`,
+      );
+    }
     await saveJson(path, {
       verification: result.verification,
       citations: result.citations,

@@ -7,6 +7,7 @@ type JsonObject = Record<string, unknown>;
 export interface UrlCitation {
   url: string;
   title?: string;
+  content?: string;
 }
 
 function object(value: unknown): JsonObject | undefined {
@@ -27,12 +28,47 @@ export function parseUrlCitations(value: unknown): UrlCitation[] {
     const citation = object(object(item)?.url_citation);
     const url = citation?.url;
     const title = citation?.title;
+    const content = citation?.content;
     if (typeof url !== "string" || !/^https?:\/\//.test(url)) return [];
-    return [
-      typeof title === "string" && title.trim() ? { url, title } : { url },
-    ];
+    return [{
+      url,
+      ...(typeof title === "string" && title.trim() ? { title } : {}),
+      ...(typeof content === "string" && content.trim()
+        ? { content: content.slice(0, 2_000) }
+        : {}),
+    }];
   });
   return [...new Map(citations.map((citation) => [citation.url, citation])).values()];
+}
+
+async function requestOpenRouter(
+  apiKey: string,
+  body: JsonObject,
+): Promise<unknown> {
+  const response = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const rawText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `OpenRouter request failed (${response.status} ${response.statusText}): ${rawText}`,
+    );
+  }
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    throw new Error("OpenRouter returned invalid JSON");
+  }
+}
+
+function responseMessage(rawResponse: unknown): JsonObject | undefined {
+  const choices = object(rawResponse)?.choices;
+  return Array.isArray(choices) ? object(object(choices[0])?.message) : undefined;
 }
 
 export async function requestStructuredJson(
@@ -41,15 +77,8 @@ export async function requestStructuredJson(
   content: unknown[],
   schemaName: string,
   schema: JsonObject,
-  options: { webSearch?: boolean } = {},
 ): Promise<{ parsed: unknown; rawResponse: unknown; citations: UrlCitation[] }> {
-  const response = await fetch(OPENROUTER_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const rawResponse = await requestOpenRouter(apiKey, {
       model,
       temperature: 0,
       max_tokens: 4_000,
@@ -59,38 +88,8 @@ export async function requestStructuredJson(
         json_schema: { name: schemaName, strict: true, schema },
       },
       provider: { require_parameters: true },
-      ...(options.webSearch
-        ? {
-            tools: [
-              {
-                type: "openrouter:web_search",
-                parameters: {
-                  engine: "parallel",
-                  mode: "fast",
-                  max_results: 5,
-                },
-              },
-            ],
-            max_tool_calls: 1,
-          }
-        : {}),
-    }),
   });
-  const rawText = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `OpenRouter request failed (${response.status} ${response.statusText}): ${rawText}`,
-    );
-  }
-
-  let rawResponse: unknown;
-  try {
-    rawResponse = JSON.parse(rawText);
-  } catch {
-    throw new Error("OpenRouter returned invalid JSON");
-  }
-  const choices = object(rawResponse)?.choices;
-  const message = Array.isArray(choices) ? object(object(choices[0])?.message) : undefined;
+  const message = responseMessage(rawResponse);
   const messageContent = message?.content;
   if (typeof messageContent !== "string") {
     throw new Error("OpenRouter response did not contain textual JSON output");
@@ -105,6 +104,36 @@ export async function requestStructuredJson(
   } catch {
     throw new Error("OpenRouter model output was not valid JSON");
   }
+}
+
+export async function requestWebSearch(
+  apiKey: string,
+  model: string,
+  content: unknown[],
+): Promise<{ text: string; citations: UrlCitation[]; rawResponse: unknown }> {
+  const rawResponse = await requestOpenRouter(apiKey, {
+    model,
+    temperature: 0,
+    max_tokens: 3_000,
+    messages: [{ role: "user", content }],
+    tools: [
+      {
+        type: "openrouter:web_search",
+        parameters: { engine: "parallel", mode: "fast", max_results: 5 },
+      },
+    ],
+    max_tool_calls: 1,
+    provider: { require_parameters: true },
+  });
+  const message = responseMessage(rawResponse);
+  if (typeof message?.content !== "string" || !message.content.trim()) {
+    throw new Error("OpenRouter web search did not return textual evidence");
+  }
+  return {
+    text: message.content,
+    citations: parseUrlCitations(message.annotations),
+    rawResponse,
+  };
 }
 
 export async function extractImage(
