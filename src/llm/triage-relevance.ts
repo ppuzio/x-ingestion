@@ -1,4 +1,6 @@
+import { object } from "../json.ts";
 import type { SavedPost } from "../model.ts";
+import { collapseWhitespace, stripUrls } from "../text.ts";
 import { synthesisSource } from "./enrich-post.ts";
 import { requestStructuredJson } from "./openrouter.ts";
 
@@ -23,14 +25,6 @@ export function oldestFirst(posts: SavedPost[]): SavedPost[] {
       (a.createdAt ?? "\uffff").localeCompare(b.createdAt ?? "\uffff") ||
       a.id.localeCompare(b.id),
   );
-}
-
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown): JsonObject | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : undefined;
 }
 
 export function parseRelevanceAssessments(
@@ -89,14 +83,32 @@ export function protectMissingContext(
       (fragment) => fragment.kind === "media" && fragment.role === "attachment",
     );
     const missingLink = post?.fragments.some((fragment) => fragment.kind === "link");
-    return assessment.status === "non_knowledge" && (missingAttachment || missingLink)
+    const text = post?.fragments.find((fragment) => fragment.kind === "text")?.text;
+    const knowledgeSignal = /\b(how to|trick|advice|questions?|guide|tutorial|technique|here are)\b/i.test(
+      text ?? "",
+    );
+    return assessment.status === "non_knowledge" &&
+      (missingAttachment || missingLink || knowledgeSignal)
       ? {
           ...assessment,
           status: "unclear",
-          reason: "The potentially useful content is in linked or attached material that has not been analyzed yet.",
+          reason: knowledgeSignal
+            ? "The post points to potentially useful advice or a technique, but the captured details are incomplete."
+            : "The potentially useful content is in linked or attached material that has not been analyzed yet.",
         }
       : assessment;
   });
+}
+
+export function protectRelevanceAssessments(
+  posts: SavedPost[],
+  assessments: RelevanceAssessment[],
+  currentDate: string,
+): RelevanceAssessment[] {
+  return protectMissingContext(
+    posts,
+    protectOldEvolvingClaims(posts, assessments, currentDate),
+  );
 }
 
 export function protectOldEvolvingClaims(
@@ -122,7 +134,7 @@ export function protectOldEvolvingClaims(
     ) {
       return assessment;
     }
-    const query = text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+    const query = collapseWhitespace(stripUrls(text));
     return {
       ...assessment,
       status: "time_sensitive",
@@ -203,16 +215,13 @@ export async function triageRelevance(
     },
   );
   return {
-    assessments: protectMissingContext(
+    assessments: protectRelevanceAssessments(
       posts,
-      protectOldEvolvingClaims(
-        posts,
-        parseRelevanceAssessments(
-          parsed,
-          posts.map(({ id }) => id),
-        ),
-        currentDate,
+      parseRelevanceAssessments(
+        parsed,
+        posts.map(({ id }) => id),
       ),
+      currentDate,
     ),
     rawResponse,
   };

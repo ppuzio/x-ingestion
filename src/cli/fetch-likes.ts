@@ -7,14 +7,7 @@ import {
   type XCollection,
 } from "../x/client.ts";
 import { fetchAndSaveCollection } from "../x/fetch-likes.ts";
-
-function requiredEnvironmentVariable(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`Missing ${name}; copy .env.example to .env and set it`);
-  }
-  return value;
-}
+import { applyEnvAssignments, requiredEnvironmentVariable, runMain } from "./util.ts";
 
 async function main(): Promise<void> {
   const userId = requiredEnvironmentVariable("X_USER_ID");
@@ -50,16 +43,10 @@ async function main(): Promise<void> {
         const env = await readFile(envPath, "utf8");
         const tokens = await refreshXUserToken(refreshToken, clientId);
         bearerToken = tokens.accessToken;
-        const updatedEnv = [
+        const updatedEnv = applyEnvAssignments(env, [
           ["X_BEARER_TOKEN", tokens.accessToken],
           ["X_REFRESH_TOKEN", tokens.refreshToken],
-        ].reduce((contents, [name, value]) => {
-          const pattern = new RegExp(`^${name}=.*$`, "m");
-          const line = `${name}=${JSON.stringify(value)}`;
-          return pattern.test(contents)
-            ? contents.replace(pattern, line)
-            : `${contents.trimEnd()}\n${line}\n`;
-        }, env);
+        ]);
         const temporaryPath = `${envPath}.tmp`;
         await writeFile(temporaryPath, updatedEnv, {
           encoding: "utf8",
@@ -94,7 +81,4 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+runMain(main);

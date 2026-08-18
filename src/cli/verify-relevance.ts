@@ -1,11 +1,10 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import type { UrlCitation } from "../llm/openrouter.ts";
 import {
   RELEVANCE_TRIAGE_VERSION,
   oldestFirst,
-  parseRelevanceAssessments,
   type RelevanceAssessment,
 } from "../llm/triage-relevance.ts";
 import {
@@ -21,34 +20,16 @@ import {
 } from "../llm/verify-relevance.ts";
 import type { SavedPost } from "../model.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function saveJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-function modelDirectory(model: string): string {
-  return model.replace(/[^a-z0-9._-]+/gi, "_");
-}
-
-function titleFor(post: SavedPost): string {
-  const article = post.fragments.find((fragment) => fragment.kind === "article");
-  const text = post.fragments.find((fragment) => fragment.kind === "text");
-  return (article?.title || text?.text || post.url)
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
-}
+import {
+  exists,
+  loadCachedAssessment,
+  modelDirectory,
+  parseLimitArgument,
+  reportTitle,
+  requiredEnvironmentVariable,
+  runMain,
+  saveJson,
+} from "./util.ts";
 
 function cachedCitations(value: unknown): UrlCitation[] {
   if (!Array.isArray(value)) return [];
@@ -106,11 +87,10 @@ function report(
     }
     for (const { post, verification, citations } of matches) {
       lines.push(
-        `- [${titleFor(post).replaceAll("]", "\\]")}](${post.url}) — ${verification.reason}`,
+        `- [${reportTitle(post).replaceAll("]", "\\]")}](${post.url}) — ${verification.reason}`,
         `  - Current guidance: ${verification.currentGuidance}`,
         ...citations.filter(
-          ({ url }) =>
-            url.startsWith("https://") && verification.evidenceUrls.includes(url),
+          ({ url }) => verification.evidenceUrls.includes(url),
         ).map(
           ({ url, title }) => `  - Source: [${(title || url).replaceAll("]", "\\]")}](${url})`,
         ),
@@ -124,15 +104,10 @@ async function main(): Promise<void> {
   const postArgument = process.argv.find((argument) => argument.startsWith("--post="));
   const postId = postArgument?.slice("--post=".length);
   const refreshEvidence = process.argv.includes("--refresh-evidence");
-  const limitArgument = process.argv.find((argument) => argument.startsWith("--limit="));
-  const limit = limitArgument
-    ? Number.parseInt(limitArgument.slice("--limit=".length), 10)
-    : Number.POSITIVE_INFINITY;
-  if (!(limit > 0)) throw new Error("--limit must be a positive integer");
+  const limit = parseLimitArgument(process.argv);
 
   const posts = oldestFirst(await loadSnapshots(await latestSnapshots()));
-  const apiKey = process.env.OPENROUTER_KEY?.trim();
-  if (!apiKey) throw new Error("Missing OPENROUTER_KEY");
+  const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const triageModel =
     process.env.OPENROUTER_TRIAGE_MODEL?.trim() ||
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
@@ -146,16 +121,11 @@ async function main(): Promise<void> {
     RELEVANCE_TRIAGE_VERSION,
     modelDirectory(triageModel),
   );
+  const date = new Date().toISOString().slice(0, 10);
   const eligible: Array<{ post: SavedPost; assessment: RelevanceAssessment }> = [];
   for (const post of posts) {
-    const path = resolve(triageRoot, `${post.id}.json`);
-    if (!(await exists(path))) continue;
-    const cached = JSON.parse(await readFile(path, "utf8")) as { assessment?: unknown };
-    const assessment = parseRelevanceAssessments(
-      { assessments: [cached.assessment] },
-      [post.id],
-    )[0]!;
-    if (assessment.status === "time_sensitive") eligible.push({ post, assessment });
+    const assessment = await loadCachedAssessment(triageRoot, post, date);
+    if (assessment?.status === "time_sensitive") eligible.push({ post, assessment });
   }
   if (!eligible.length) {
     throw new Error("No time-sensitive triage results found; run npm run triage:relevance first");
@@ -165,7 +135,6 @@ async function main(): Promise<void> {
     : eligible.slice(0, limit);
   if (!selected.length) throw new Error(`No eligible triage result found for ${postId}`);
 
-  const date = new Date().toISOString().slice(0, 10);
   const evidenceRoot = resolve(
     "data/enrichment/relevance-evidence",
     RELEVANCE_EVIDENCE_VERSION,
@@ -193,33 +162,19 @@ async function main(): Promise<void> {
       };
       citations = cachedCitations(cached.citations);
     } else {
-      const legacyPath = resolve(
-        "data/enrichment/relevance-verification/v2",
-        modelDirectory(triageModel),
+      const evidence = await researchRelevance(
+        apiKey,
+        searchModel,
+        post,
+        assessment,
         date,
-        `${post.id}.json`,
       );
-      if (!refreshEvidence && await exists(legacyPath)) {
-        const legacy = JSON.parse(await readFile(legacyPath, "utf8")) as {
-          citations?: unknown;
-        };
-        citations = cachedCitations(legacy.citations);
-      }
-      if (!citations.length) {
-        const evidence = await researchRelevance(
-          apiKey,
-          searchModel,
-          post,
-          assessment,
-          date,
-        );
-        citations = evidence.citations;
-        await saveJson(
-          resolve(evidenceRoot, "raw", `${post.id}.json`),
-          evidence.rawResponse,
-        );
-        searched += 1;
-      }
+      citations = evidence.citations;
+      await saveJson(
+        resolve(evidenceRoot, "raw", `${post.id}.json`),
+        evidence.rawResponse,
+      );
+      searched += 1;
       await saveJson(evidencePath, {
         citations,
         searchModel,
@@ -269,7 +224,4 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+runMain(main);

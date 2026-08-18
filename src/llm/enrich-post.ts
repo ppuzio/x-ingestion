@@ -1,22 +1,9 @@
+import { object, strings } from "../json.ts";
 import type { PostEnrichment, SavedPost } from "../model.ts";
 import { requestStructuredJson } from "./openrouter.ts";
 
 export const SYNTHESIS_PROMPT_VERSION = "v4";
 const MAX_SOURCE_CHARACTERS = 60_000;
-
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown): JsonObject | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : undefined;
-}
-
-function strings(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? value
-    : undefined;
-}
 
 export function synthesisSource(post: SavedPost): string {
   const fragments = post.fragments.map((fragment) => {

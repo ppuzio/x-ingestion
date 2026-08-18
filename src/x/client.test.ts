@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  fetchLikedPostsRaw,
-  fetchUserPostsRaw,
-  refreshXUserToken,
-} from "./client.ts";
+import { fetchUserPostsRaw, refreshXUserToken } from "./client.ts";
 
 test("fetches the requested fields and returns the response body unchanged", async () => {
   const originalFetch = globalThis.fetch;
@@ -20,9 +16,10 @@ test("fetches the requested fields and returns the response body unchanged", asy
   }) as typeof fetch;
 
   try {
-    const body = await fetchLikedPostsRaw({
+    const body = await fetchUserPostsRaw({
       bearerToken: "secret",
       userId: "123456789",
+      collection: "likes",
       maxResults: 50,
     });
 

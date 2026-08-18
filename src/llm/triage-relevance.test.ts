@@ -99,6 +99,27 @@ test("does not make already-useful text unclear merely because media is attached
   assert.equal(assessment?.status, "durable");
 });
 
+test("does not discard an incomplete post that signals useful advice or a technique", () => {
+  const posts = [
+    {
+      id: "1",
+      fragments: [
+        { kind: "text", source: "post", text: "Here are ten interview questions with advice." },
+      ],
+    },
+  ] as SavedPost[];
+  const [assessment] = protectMissingContext(posts, [
+    {
+      postId: "1",
+      status: "non_knowledge",
+      reason: "Prescriptive social content.",
+      needsWebCheck: false,
+      webQuery: null,
+    },
+  ]);
+  assert.equal(assessment?.status, "unclear");
+});
+
 test("forces old comparative runtime claims into web verification", () => {
   const posts = [
     {

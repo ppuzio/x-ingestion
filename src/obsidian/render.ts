@@ -5,6 +5,7 @@ import type {
   SavedPost,
   TextFragment,
 } from "../model.ts";
+import { collapseWhitespace, stripUrls } from "../text.ts";
 
 export interface ConceptVocabulary {
   aliases: {
@@ -22,47 +23,42 @@ function textFragment(post: SavedPost): TextFragment {
   return fragment;
 }
 
+/** Obsidian and the filesystem both reject these in a note name or wikilink. */
+function safeName(value: string): string {
+  return collapseWhitespace(value.replace(/[/\\:*?"<>|#[\]^]/g, "-"));
+}
+
 function titleFor(post: SavedPost): string {
   const article = post.fragments.find(
     (fragment): fragment is ArticleFragment => fragment.kind === "article",
   );
-  if (article) return article.title;
-
-  const line = textFragment(post)
-    .text.split("\n")
-    .map((value) => value.replace(/https?:\/\/\S+/g, "").trim())
-    .find(Boolean);
-  return (line || `X post by ${post.author.username ?? post.author.id}`).slice(0, 100);
+  const line =
+    article?.title ??
+    textFragment(post)
+      .text.split("\n")
+      .map((value) => stripUrls(value).trim())
+      .find(Boolean);
+  return collapseWhitespace(
+    line || `X post by ${post.author.username ?? post.author.id}`,
+  ).slice(0, 100);
 }
 
 function filenameFor(title: string, id: string): string {
-  const safeTitle = title
-    .replace(/[/\\:*?"<>|#[\]^]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 90);
-  return `${safeTitle || "X post"} -- ${id}.md`;
+  return `${safeName(title).slice(0, 90) || "X post"} -- ${safeName(id)}.md`;
 }
 
 function list(values: string[]): string[] {
   return values.length
-    ? values.map((value) => `- ${value.replace(/\s+/g, " ").trim()}`)
+    ? values.map((value) => `- ${collapseWhitespace(value)}`)
     : ["- None"];
 }
 
 function wikilinks(values: string[]): string[] {
-  return list(
-    values.map(
-      (value) =>
-        `[[${value.replace(/[/\\:*?"<>|#[\]^]/g, "-").replace(/\s+/g, " ").trim()}]]`,
-    ),
-  );
+  return list(values.map((value) => `[[${safeName(value)}]]`));
 }
 
 export function normalizeTopicCase(value: string): string {
-  return value
-    .replace(/\s+/g, " ")
-    .trim()
+  return collapseWhitespace(value)
     .split(" ")
     .map((word) =>
       /[A-Z]/.test(word) && word === word.toUpperCase()
@@ -95,7 +91,7 @@ function renderConcepts(values: string[], vocabulary?: ConceptVocabulary): strin
     rendered.push(
       plainText.has(original) || plainText.has(canonical)
         ? canonical
-        : `[[${canonical.replace(/[/\\:*?"<>|#[\]^]/g, "-").replace(/\s+/g, " ").trim()}]]`,
+        : `[[${safeName(canonical)}]]`,
     );
   }
   return list(rendered);

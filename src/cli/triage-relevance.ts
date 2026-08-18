@@ -1,41 +1,26 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import {
   RELEVANCE_TRIAGE_VERSION,
   oldestFirst,
-  parseRelevanceAssessments,
   triageRelevance,
   type RelevanceAssessment,
   type RelevanceStatus,
 } from "../llm/triage-relevance.ts";
 import type { SavedPost } from "../model.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
+import {
+  loadCachedAssessment,
+  modelDirectory,
+  parseLimitArgument,
+  reportTitle,
+  requiredEnvironmentVariable,
+  runMain,
+  saveJson,
+} from "./util.ts";
 
 const BATCH_SIZE = 20;
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function saveJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-function titleFor(post: SavedPost): string {
-  const article = post.fragments.find((fragment) => fragment.kind === "article");
-  if (article) return article.title;
-  const text = post.fragments.find((fragment) => fragment.kind === "text");
-  return (text?.text.replace(/https?:\/\/\S+/g, "").trim() || post.url)
-    .replace(/\s+/g, " ")
-    .slice(0, 100);
-}
 
 function report(
   posts: SavedPost[],
@@ -75,7 +60,7 @@ function report(
     for (const assessment of matches) {
       const post = byId.get(assessment.postId)!;
       lines.push(
-        `- [${titleFor(post).replaceAll("]", "\\]")}](${post.url}) — ${assessment.reason}`,
+        `- [${reportTitle(post).replaceAll("]", "\\]")}](${post.url}) — ${assessment.reason}`,
         ...(assessment.webQuery ? [`  - Suggested query: ${assessment.webQuery}`] : []),
       );
     }
@@ -84,42 +69,30 @@ function report(
 }
 
 async function main(): Promise<void> {
-  const limitArgument = process.argv.find((argument) => argument.startsWith("--limit="));
-  const limit = limitArgument
-    ? Number.parseInt(limitArgument.slice("--limit=".length), 10)
-    : Number.POSITIVE_INFINITY;
-  if (!(limit > 0)) throw new Error("--limit must be a positive integer");
+  const limit = parseLimitArgument(process.argv);
 
   const allPosts = oldestFirst(await loadSnapshots(await latestSnapshots()));
   const posts = allPosts.slice(0, limit);
-  const apiKey = process.env.OPENROUTER_KEY?.trim();
-  if (!apiKey) throw new Error("Missing OPENROUTER_KEY");
+  const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const model =
     process.env.OPENROUTER_TRIAGE_MODEL?.trim() ||
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
     "qwen/qwen3-vl-32b-instruct";
-  const modelDirectory = model.replace(/[^a-z0-9._-]+/gi, "_");
   const cacheRoot = resolve(
     "data/enrichment/relevance-triage",
     RELEVANCE_TRIAGE_VERSION,
-    modelDirectory,
+    modelDirectory(model),
   );
   const assessments = new Map<string, RelevanceAssessment>();
   const uncached: SavedPost[] = [];
+  const currentDate = new Date().toISOString().slice(0, 10);
   for (const post of posts) {
-    const cachePath = resolve(cacheRoot, `${post.id}.json`);
-    if (!(await exists(cachePath))) {
+    const cached = await loadCachedAssessment(cacheRoot, post, currentDate);
+    if (!cached) {
       uncached.push(post);
       continue;
     }
-    const cached = JSON.parse(await readFile(cachePath, "utf8")) as {
-      assessment?: unknown;
-    };
-    const assessment = parseRelevanceAssessments(
-      { assessments: [cached.assessment] },
-      [post.id],
-    )[0]!;
-    assessments.set(post.id, assessment);
+    assessments.set(post.id, cached);
   }
 
   for (let index = 0; index < uncached.length; index += BATCH_SIZE) {
@@ -128,7 +101,7 @@ async function main(): Promise<void> {
       apiKey,
       model,
       batch,
-      new Date().toISOString().slice(0, 10),
+      currentDate,
     );
     for (const assessment of result.assessments) {
       assessments.set(assessment.postId, assessment);
@@ -154,7 +127,4 @@ async function main(): Promise<void> {
   );
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+runMain(main);

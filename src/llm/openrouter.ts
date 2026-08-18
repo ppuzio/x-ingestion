@@ -1,25 +1,12 @@
+import { object, strings, type JsonObject } from "../json.ts";
 import type { ImageExtraction, Translation } from "../model.ts";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-
-type JsonObject = Record<string, unknown>;
 
 export interface UrlCitation {
   url: string;
   title?: string;
   content?: string;
-}
-
-function object(value: unknown): JsonObject | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : undefined;
-}
-
-function strings(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? value
-    : undefined;
 }
 
 export function parseUrlCitations(value: unknown): UrlCitation[] {

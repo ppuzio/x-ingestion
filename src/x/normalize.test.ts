@@ -191,3 +191,76 @@ test("normalizes topic casing without lowercasing acronyms", () => {
   assert.equal(normalizeTopicCase("AI Agents"), "AI agents");
   assert.equal(normalizeTopicCase("CI/CD Automation"), "CI/CD automation");
 });
+
+test("rejects a post id that could escape the preview directory", () => {
+  assert.throws(
+    () =>
+      normalizeLikesResponse(
+        {
+          data: [{ id: "../../../tmp/evil", text: "hi", author_id: "20" }],
+          includes: { users: [{ id: "20", username: "author" }] },
+        },
+        "data/raw/fixture.json",
+        "2026-01-02T00:00:00Z",
+      ),
+    /Unsafe X post id/,
+  );
+});
+
+test("drops media whose key could escape the attachments directory", () => {
+  const [post] = normalizeLikesResponse(
+    {
+      data: [
+        {
+          id: "10",
+          text: "hi",
+          author_id: "20",
+          attachments: { media_keys: ["../../escape", "3_image"] },
+        },
+      ],
+      includes: {
+        users: [{ id: "20", username: "author" }],
+        media: [
+          { media_key: "../../escape", type: "photo", url: "https://img.test/a.jpg" },
+          { media_key: "3_image", type: "photo", url: "https://img.test/b.jpg" },
+        ],
+      },
+    },
+    "data/raw/fixture.json",
+    "2026-01-02T00:00:00Z",
+  );
+  assert(post);
+  assert.deepEqual(
+    post.fragments
+      .filter((fragment): fragment is MediaFragment => fragment.kind === "media")
+      .map((fragment) => fragment.mediaKey),
+    ["3_image"],
+  );
+});
+
+test("keeps a multi-line article title on one line in the note and filename", () => {
+  const [post] = normalizeLikesResponse(
+    {
+      data: [
+        {
+          id: "10",
+          text: "https://t.co/article",
+          author_id: "20",
+          article: {
+            title: "Line one\nline two",
+            plain_text: "Body",
+          },
+        },
+      ],
+      includes: { users: [{ id: "20", username: "author" }] },
+    },
+    "data/raw/fixture.json",
+    "2026-01-02T00:00:00Z",
+  );
+  assert(post);
+
+  const note = renderObsidianNote(post);
+  assert.equal(note.title, "Line one line two");
+  assert.equal(note.filename, "Line one line two -- 10.md");
+  assert.match(note.markdown, /\n# Line one line two\n/);
+});

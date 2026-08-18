@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -23,19 +23,17 @@ import {
   loadSnapshots,
   snapshotPattern,
 } from "../x/snapshots.ts";
+import {
+  exists,
+  modelDirectory,
+  requiredEnvironmentVariable,
+  runMain,
+  saveJson,
+} from "./util.ts";
 
 const previewRoot = resolve("data/obsidian-preview");
 const enrichmentRoot = resolve("data/enrichment");
 const execFileAsync = promisify(execFile);
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function extensionFor(url: string): string {
   const extension = extname(new URL(url).pathname).toLowerCase();
@@ -157,23 +155,14 @@ async function cachedJson<T>(path: string): Promise<T | undefined> {
   return JSON.parse(await readFile(path, "utf8")) as T;
 }
 
-async function saveJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
 function dataUrl(buffer: Buffer, path: string): string {
   const mime = extname(path).toLowerCase() === ".png" ? "image/png" : "image/jpeg";
   return `data:${mime};base64,${buffer.toString("base64")}`;
 }
 
-function modelDirectoryName(model: string): string {
-  return model.replace(/[^a-z0-9._-]+/gi, "_");
-}
-
+/** An `apiKey` means enrichment is on; `main` resolves it once for the whole run. */
 async function prepareMedia(
   post: SavedPost,
-  enrich: boolean,
   apiKey: string | undefined,
   visionModel: string,
 ): Promise<void> {
@@ -185,7 +174,7 @@ async function prepareMedia(
     // ponytail: inline article images remain remote until X exposes placement or
     // the preview proves a gallery is useful.
     if (item.role === "article") continue;
-    const analyzeVideo = Boolean(enrich && item.mediaType !== "image" && item.url);
+    const analyzeVideo = Boolean(apiKey && item.mediaType !== "image" && item.url);
     const sourceUrl = analyzeVideo ? item.url : item.mediaType === "image" ? item.url : item.previewUrl;
     if (!sourceUrl) continue;
 
@@ -214,11 +203,11 @@ async function prepareMedia(
       if (item.mediaType !== "image") item.archived = false;
     }
 
-    if (!enrich || item.role !== "attachment") continue;
+    if (!apiKey || item.role !== "attachment") continue;
     const cachePath = resolve(
       enrichmentRoot,
       "vision",
-      modelDirectoryName(visionModel),
+      modelDirectory(visionModel),
       `${item.mediaKey}${analyzeVideo ? "-frames" : ""}.json`,
     );
     const cached = await cachedJson<{ extraction: ImageExtraction }>(cachePath);
@@ -226,7 +215,6 @@ async function prepareMedia(
       item.extraction = cached.extraction;
       continue;
     }
-    if (!apiKey) throw new Error("Missing OPENROUTER_KEY for --enrich");
     try {
       const result = await extractImage(
         apiKey,
@@ -252,7 +240,6 @@ async function prepareMedia(
 
 async function prepareTranslation(
   post: SavedPost,
-  enrich: boolean,
   apiKey: string | undefined,
   translationModel: string,
 ): Promise<void> {
@@ -260,7 +247,7 @@ async function prepareTranslation(
     (fragment): fragment is TextFragment => fragment.kind === "text",
   );
   if (
-    !enrich ||
+    !apiKey ||
     !text?.language ||
     ["en", "und", "zxx"].includes(text.language)
   ) {
@@ -270,7 +257,7 @@ async function prepareTranslation(
   const cachePath = resolve(
     enrichmentRoot,
     "translation",
-    modelDirectoryName(translationModel),
+    modelDirectory(translationModel),
     `${post.id}.json`,
   );
   const cached = await cachedJson<{ translation: Translation }>(cachePath);
@@ -278,7 +265,6 @@ async function prepareTranslation(
     text.translation = cached.translation;
     return;
   }
-  if (!apiKey) throw new Error("Missing OPENROUTER_KEY for --enrich");
   try {
     const result = await translateText(
       apiKey,
@@ -301,16 +287,15 @@ async function prepareTranslation(
 
 async function prepareSynthesis(
   post: SavedPost,
-  enrich: boolean,
   apiKey: string | undefined,
   synthesisModel: string,
 ): Promise<void> {
-  if (!enrich) return;
+  if (!apiKey) return;
   const cachePath = resolve(
     enrichmentRoot,
     "synthesis",
     SYNTHESIS_PROMPT_VERSION,
-    modelDirectoryName(synthesisModel),
+    modelDirectory(synthesisModel),
     `${post.id}.json`,
   );
   const cached = await cachedJson<{ enrichment: PostEnrichment }>(cachePath);
@@ -318,7 +303,6 @@ async function prepareSynthesis(
     post.enrichment = cached.enrichment;
     return;
   }
-  if (!apiKey) throw new Error("Missing OPENROUTER_KEY for --enrich");
   try {
     const result = await enrichPost(apiKey, synthesisModel, post);
     post.enrichment = result.enrichment;
@@ -342,7 +326,7 @@ async function main(): Promise<void> {
     ? [resolve(requestedSnapshot)]
     : await latestSnapshots();
   const posts = await loadSnapshots(snapshots);
-  const apiKey = process.env.OPENROUTER_KEY?.trim();
+  const apiKey = enrich ? requiredEnvironmentVariable("OPENROUTER_KEY") : undefined;
   const visionModel =
     process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
   const translationModel =
@@ -358,9 +342,9 @@ async function main(): Promise<void> {
   await mkdir(previewRoot, { recursive: true });
   const rendered: Array<{ filename: string; title: string }> = [];
   for (const post of posts) {
-    await prepareMedia(post, enrich, apiKey, visionModel);
-    await prepareTranslation(post, enrich, apiKey, translationModel);
-    await prepareSynthesis(post, enrich, apiKey, synthesisModel);
+    await prepareMedia(post, apiKey, visionModel);
+    await prepareTranslation(post, apiKey, translationModel);
+    await prepareSynthesis(post, apiKey, synthesisModel);
     const note = renderObsidianNote(post, conceptVocabulary);
     await writeFile(resolve(previewRoot, note.filename), note.markdown, "utf8");
     rendered.push(note);
@@ -388,7 +372,4 @@ async function main(): Promise<void> {
   console.log(`Saved canonical records to ${normalizedPath}`);
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+runMain(main);

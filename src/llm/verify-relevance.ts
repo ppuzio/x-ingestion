@@ -1,3 +1,4 @@
+import { object } from "../json.ts";
 import type { SavedPost } from "../model.ts";
 import { synthesisSource } from "./enrich-post.ts";
 import {
@@ -22,14 +23,6 @@ export interface RelevanceVerification {
   reason: string;
   currentGuidance: string;
   evidenceUrls: string[];
-}
-
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown): JsonObject | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : undefined;
 }
 
 export function parseRelevanceVerification(

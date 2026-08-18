@@ -1,8 +1,16 @@
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { readFile, readdir, writeFile } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 
+import { object, string, strings } from "../json.ts";
 import { requestStructuredJson } from "../llm/openrouter.ts";
 import { normalizeTopicCase } from "../obsidian/render.ts";
+import {
+  exists,
+  modelDirectory,
+  requiredEnvironmentVariable,
+  runMain,
+  saveJson,
+} from "./util.ts";
 
 const AUDIT_VERSION = "v2";
 const categories = ["topic", "concept", "technology", "person"] as const;
@@ -22,33 +30,6 @@ interface Proposal {
   canonical: string | null;
   members: string[];
   rationale: string;
-}
-
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown): JsonObject | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : undefined;
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function strings(value: unknown): string[] | undefined {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? value
-    : undefined;
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function latestNormalized(): Promise<string> {
@@ -82,12 +63,15 @@ function collectInventory(input: unknown): {
 
   for (const rawPost of input) {
     const post = object(rawPost);
-    const id = text(post?.id);
+    const id = string(post?.id);
     const enrichment = object(post?.enrichment);
-    const promptVersion = text(enrichment?.promptVersion);
-    if (!id || !enrichment || !promptVersion) {
-      throw new Error("Every canonical post must contain synthesis before auditing");
+    const promptVersion = string(enrichment?.promptVersion);
+    if (!enrichment || !promptVersion) {
+      throw new Error(
+        `Post ${id ?? "(unknown id)"} has no synthesis; run npm run preview:enrich before auditing`,
+      );
     }
+    if (!id) throw new Error("Every canonical post must have an id");
     versions.add(promptVersion);
     for (const category of categories) {
       const names = strings(enrichment[fields[category]]);
@@ -128,11 +112,11 @@ function parseProposals(value: unknown, inventory: InventoryItem[]): Proposal[] 
 
   rows.forEach((raw, index) => {
     const row = object(raw);
-    const category = text(row?.category);
-    const action = text(row?.action);
+    const category = string(row?.category);
+    const action = string(row?.action);
     const canonical = row?.canonical;
     const members = strings(row?.members);
-    const rationale = text(row?.rationale);
+    const rationale = string(row?.rationale);
     if (
       !categories.includes(category as Category) ||
       !["merge", "rename", "do_not_link"].includes(action ?? "") ||
@@ -264,16 +248,14 @@ async function main(): Promise<void> {
   const { items, synthesisVersion } = collectInventory(
     JSON.parse(await readFile(snapshot, "utf8")) as unknown,
   );
-  const apiKey = process.env.OPENROUTER_KEY?.trim();
-  if (!apiKey) throw new Error("Missing OPENROUTER_KEY");
+  const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const model =
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
-  const modelDirectory = model.replace(/[^a-z0-9._-]+/gi, "_");
   const cachePath = resolve(
     "data/enrichment/concept-audit",
     AUDIT_VERSION,
     synthesisVersion,
-    modelDirectory,
+    modelDirectory(model),
     basename(snapshot),
   );
 
@@ -326,12 +308,7 @@ async function main(): Promise<void> {
       },
     );
     proposals = parseProposals(result.parsed, items);
-    await mkdir(dirname(cachePath), { recursive: true });
-    await writeFile(
-      cachePath,
-      `${JSON.stringify({ proposals, rawResponse: result.rawResponse }, null, 2)}\n`,
-      "utf8",
-    );
+    await saveJson(cachePath, { proposals, rawResponse: result.rawResponse });
   }
 
   const reportPath = resolve("data/obsidian-preview/_Concept_Audit.md");
@@ -343,7 +320,4 @@ async function main(): Promise<void> {
   console.log(`Wrote ${proposals.length} proposed changes to ${reportPath}`);
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+runMain(main);

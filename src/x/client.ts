@@ -90,14 +90,15 @@ const PLACE_FIELDS = [
   "place_type",
 ];
 
-export interface FetchLikedPostsOptions {
+export type XCollection = "likes" | "bookmarks";
+
+export interface FetchUserPostsOptions {
   bearerToken: string;
   userId: string;
+  collection: XCollection;
   maxResults?: number;
   paginationToken?: string;
 }
-
-export type XCollection = "likes" | "bookmarks";
 
 export class XApiError extends Error {
   readonly status: number;
@@ -170,36 +171,13 @@ export function buildUserPostsUrl(
   return url;
 }
 
-export function buildLikedPostsUrl(
-  userId: string,
-  maxResults = 10,
-  paginationToken?: string,
-): URL {
-  return buildUserPostsUrl(userId, "likes", maxResults, paginationToken);
-}
-
-export async function fetchLikedPostsRaw({
-  bearerToken,
-  userId,
-  maxResults = 10,
-  paginationToken,
-}: FetchLikedPostsOptions): Promise<string> {
-  return fetchUserPostsRaw({
-    bearerToken,
-    userId,
-    collection: "likes",
-    maxResults,
-    ...(paginationToken ? { paginationToken } : {}),
-  });
-}
-
 export async function fetchUserPostsRaw({
   bearerToken,
   userId,
   collection,
   maxResults = 100,
   paginationToken,
-}: FetchLikedPostsOptions & { collection: XCollection }): Promise<string> {
+}: FetchUserPostsOptions): Promise<string> {
   const response = await fetch(
     buildUserPostsUrl(userId, collection, maxResults, paginationToken),
     {

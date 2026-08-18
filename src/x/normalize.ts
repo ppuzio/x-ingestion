@@ -1,3 +1,11 @@
+import {
+  number,
+  object,
+  objects,
+  string,
+  stringList,
+  type JsonObject,
+} from "../json.ts";
 import type {
   ArticleFragment,
   ContentFragment,
@@ -9,33 +17,11 @@ import type {
   SavedPost,
 } from "../model.ts";
 
-type JsonObject = Record<string, unknown>;
-
-function object(value: unknown): JsonObject | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : undefined;
-}
-
-function objects(value: unknown): JsonObject[] {
-  return Array.isArray(value)
-    ? value.map(object).filter((item): item is JsonObject => item !== undefined)
-    : [];
-}
-
-function string(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-function number(value: unknown): number | undefined {
-  return typeof value === "number" ? value : undefined;
-}
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.flatMap((item) => string(item) ?? [])
-    : [];
-}
+/**
+ * Post ids and media keys end up in filesystem paths (note filenames, attachment
+ * directories), so they are validated here rather than sanitized at each use.
+ */
+const SAFE_IDENTIFIER = /^[A-Za-z0-9_-]+$/;
 
 function authorFrom(user: JsonObject | undefined, id: string): SavedAuthor {
   const username = string(user?.username);
@@ -89,7 +75,7 @@ function articleFrom(post: JsonObject): ArticleFragment | undefined {
     title,
     text,
     codeBlocks,
-    mediaKeys: strings(article.media_entities),
+    mediaKeys: stringList(article.media_entities),
   };
 }
 
@@ -101,7 +87,7 @@ function mediaFrom(
 ): MediaFragment | undefined {
   const mediaKey = string(media.media_key);
   const xType = string(media.type);
-  if (!mediaKey || !xType) return undefined;
+  if (!mediaKey || !SAFE_IDENTIFIER.test(mediaKey) || !xType) return undefined;
 
   const mediaType =
     xType === "photo"
@@ -182,6 +168,9 @@ export function normalizeLikesResponse(
     if (!post || !id || rootText === undefined || !authorId) {
       throw new Error(`Invalid X post at data[${index}]`);
     }
+    if (!SAFE_IDENTIFIER.test(id)) {
+      throw new Error(`Unsafe X post id at data[${index}]: ${JSON.stringify(id)}`);
+    }
 
     const author = authorFrom(users.get(authorId), authorId);
     const noteText = string(object(post.note_post)?.text);
@@ -211,7 +200,7 @@ export function normalizeLikesResponse(
       }
     };
 
-    strings(object(post.attachments)?.media_keys).forEach((key) =>
+    stringList(object(post.attachments)?.media_keys).forEach((key) =>
       addMedia(key, "attachment")
     );
     if (article) {
