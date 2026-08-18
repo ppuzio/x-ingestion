@@ -94,7 +94,10 @@ export interface FetchLikedPostsOptions {
   bearerToken: string;
   userId: string;
   maxResults?: number;
+  paginationToken?: string;
 }
+
+export type XCollection = "likes" | "bookmarks";
 
 export class XApiError extends Error {
   readonly status: number;
@@ -139,20 +142,25 @@ export async function refreshXUserToken(
   };
 }
 
-export function buildLikedPostsUrl(
+export function buildUserPostsUrl(
   userId: string,
+  collection: XCollection,
   maxResults = 10,
+  paginationToken?: string,
 ): URL {
   if (!/^\d{1,19}$/.test(userId)) {
     throw new Error("X_USER_ID must contain 1-19 digits");
   }
 
-  if (!Number.isInteger(maxResults) || maxResults < 5 || maxResults > 100) {
-    throw new Error("maxResults must be an integer from 5 to 100");
+  const minimum = collection === "likes" ? 5 : 1;
+  if (!Number.isInteger(maxResults) || maxResults < minimum || maxResults > 100) {
+    throw new Error(`maxResults must be an integer from ${minimum} to 100`);
   }
 
-  const url = new URL(`${API_BASE_URL}/users/${userId}/liked_tweets`);
+  const endpoint = collection === "likes" ? "liked_tweets" : "bookmarks";
+  const url = new URL(`${API_BASE_URL}/users/${userId}/${endpoint}`);
   url.searchParams.set("max_results", String(maxResults));
+  if (paginationToken) url.searchParams.set("pagination_token", paginationToken);
   url.searchParams.set("post.fields", POST_FIELDS.join(","));
   url.searchParams.set("expansions", EXPANSIONS.join(","));
   url.searchParams.set("user.fields", USER_FIELDS.join(","));
@@ -162,17 +170,45 @@ export function buildLikedPostsUrl(
   return url;
 }
 
+export function buildLikedPostsUrl(
+  userId: string,
+  maxResults = 10,
+  paginationToken?: string,
+): URL {
+  return buildUserPostsUrl(userId, "likes", maxResults, paginationToken);
+}
+
 export async function fetchLikedPostsRaw({
   bearerToken,
   userId,
   maxResults = 10,
+  paginationToken,
 }: FetchLikedPostsOptions): Promise<string> {
-  const response = await fetch(buildLikedPostsUrl(userId, maxResults), {
+  return fetchUserPostsRaw({
+    bearerToken,
+    userId,
+    collection: "likes",
+    maxResults,
+    ...(paginationToken ? { paginationToken } : {}),
+  });
+}
+
+export async function fetchUserPostsRaw({
+  bearerToken,
+  userId,
+  collection,
+  maxResults = 100,
+  paginationToken,
+}: FetchLikedPostsOptions & { collection: XCollection }): Promise<string> {
+  const response = await fetch(
+    buildUserPostsUrl(userId, collection, maxResults, paginationToken),
+    {
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${bearerToken}`,
     },
-  });
+    },
+  );
   const body = await response.text();
 
   if (!response.ok) {

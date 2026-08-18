@@ -7,9 +7,10 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "fetch:likes": "node --env-file-if-exists=.env src/cli/fetch-likes.ts",
+    "fetch:x": "node --env-file-if-exists=.env src/cli/fetch-likes.ts",
     "preview": "node --env-file-if-exists=.env src/cli/build-preview.ts",
     "preview:enrich": "node --env-file-if-exists=.env src/cli/build-preview.ts --enrich",
+    "triage:relevance": "node --env-file-if-exists=.env src/cli/triage-relevance.ts",
     "audit:concepts": "node --env-file-if-exists=.env src/cli/audit-concepts.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test src/**/*.test.ts",

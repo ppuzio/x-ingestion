@@ -2,6 +2,7 @@ import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
 import { requestStructuredJson } from "../llm/openrouter.ts";
+import { normalizeTopicCase } from "../obsidian/render.ts";
 
 const AUDIT_VERSION = "v2";
 const categories = ["topic", "concept", "technology", "person"] as const;
@@ -52,9 +53,14 @@ async function exists(path: string): Promise<boolean> {
 
 async function latestNormalized(): Promise<string> {
   const directory = resolve("data/normalized");
-  const files = (await readdir(directory))
-    .filter((name) => name.endsWith(".normalized.json"))
-    .sort();
+  const files = (await readdir(directory)).filter((name) =>
+    name.endsWith(".normalized.json"),
+  );
+  files.sort((a, b) => {
+    const timestamp = (name: string): string =>
+      name.match(/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/)?.[0] ?? "";
+    return timestamp(a).localeCompare(timestamp(b));
+  });
   const latest = files.at(-1);
   if (!latest) throw new Error("No canonical snapshots found in data/normalized");
   return resolve(directory, latest);
@@ -86,7 +92,11 @@ function collectInventory(input: unknown): {
     for (const category of categories) {
       const names = strings(enrichment[fields[category]]);
       if (!names) throw new Error(`Invalid ${fields[category]} for post ${id}`);
-      for (const name of new Set(names.map((value) => value.trim()).filter(Boolean))) {
+      const normalizedNames = names
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map((name) => category === "topic" ? normalizeTopicCase(name) : name);
+      for (const name of new Set(normalizedNames)) {
         const key = `${category}\0${name}`;
         const entry = entries.get(key) ?? { category, name, count: 0, postIds: [] };
         entry.count += 1;
@@ -135,6 +145,10 @@ function parseProposals(value: unknown, inventory: InventoryItem[]): Proposal[] 
     }
     if (action === "merge" && members.length < 2) {
       console.warn(`Rejected one-member merge proposal ${index}`);
+      return;
+    }
+    if (new Set(members).size !== members.length) {
+      console.warn(`Rejected proposal ${index} with duplicate members`);
       return;
     }
     if (action === "rename" && members.length !== 1) {

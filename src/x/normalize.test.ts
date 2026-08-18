@@ -4,8 +4,8 @@ import test from "node:test";
 import { shouldArchiveVideo } from "../model.ts";
 import type { ArticleFragment, MediaFragment, TextFragment } from "../model.ts";
 import { synthesisSource } from "../llm/enrich-post.ts";
-import { renderObsidianNote } from "../obsidian/render.ts";
-import { normalizeLikesResponse } from "./normalize.ts";
+import { normalizeTopicCase, renderObsidianNote } from "../obsidian/render.ts";
+import { mergeSavedPosts, normalizeLikesResponse } from "./normalize.ts";
 
 test("normalizes mixed X content into replayable fragments and renders it", () => {
   const raw = {
@@ -103,6 +103,16 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
   assert.match(synthesisSource(post), /Useful visual fact/);
   assert.doesNotMatch(synthesisSource(post), /Low-level uncertainty/);
   assert.equal(post.relationships[0]?.text, "Quoted text");
+  const bookmarked = normalizeLikesResponse(
+    raw,
+    "data/raw/bookmarks-fixture.json",
+    "2026-01-02T00:00:00Z",
+    "bookmark",
+  )[0];
+  assert(bookmarked);
+  const [merged] = mergeSavedPosts([post, bookmarked]);
+  assert.deepEqual(merged?.captureMethods, ["like", "bookmark"]);
+  assert.equal(merged?.rawSources.length, 2);
   post.enrichment = {
     summary: "A concise synthesis.",
     topics: ["Developer tools", "code quality", "code maintenance"],
@@ -174,4 +184,10 @@ test("keeps zxx as source metadata instead of treating an article as zxx", () =>
 test("archives only videos up to ten minutes", () => {
   assert.equal(shouldArchiveVideo(10 * 60 * 1_000), true);
   assert.equal(shouldArchiveVideo(10 * 60 * 1_000 + 1), false);
+});
+
+test("normalizes topic casing without lowercasing acronyms", () => {
+  assert.equal(normalizeTopicCase("Artificial Intelligence"), "artificial intelligence");
+  assert.equal(normalizeTopicCase("AI Agents"), "AI agents");
+  assert.equal(normalizeTopicCase("CI/CD Automation"), "CI/CD automation");
 });

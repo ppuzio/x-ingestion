@@ -59,8 +59,28 @@ function wikilinks(values: string[]): string[] {
   );
 }
 
-function canonicalize(values: string[], aliases: Record<string, string>): string[] {
-  return [...new Set(values.map((value) => aliases[value] ?? value))];
+export function normalizeTopicCase(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((word) =>
+      /[A-Z]/.test(word) && word === word.toUpperCase()
+        ? word
+        : word.toLowerCase(),
+    )
+    .join(" ");
+}
+
+function canonicalizeTopics(
+  values: string[],
+  aliases: Record<string, string>,
+): string[] {
+  return [
+    ...new Set(
+      values.map((value) => normalizeTopicCase(aliases[value] ?? value)),
+    ),
+  ];
 }
 
 function renderConcepts(values: string[], vocabulary?: ConceptVocabulary): string[] {
@@ -179,7 +199,7 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
   );
   const enrichment = post.enrichment;
   const topics = enrichment
-    ? canonicalize(enrichment.topics, vocabulary?.aliases.topic ?? {})
+    ? canonicalizeTopics(enrichment.topics, vocabulary?.aliases.topic ?? {})
     : [];
   const lines = [
     "---",
@@ -193,6 +213,8 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
       : []),
     ...(post.createdAt ? [`created: ${JSON.stringify(post.createdAt)}`] : []),
     `captured: ${JSON.stringify(post.capturedAt)}`,
+    "capture_methods:",
+    ...post.captureMethods.map((method) => `  - ${method}`),
     ...(text.language && !["und", "zxx"].includes(text.language)
       ? [`language: ${JSON.stringify(text.language)}`]
       : text.language
@@ -308,7 +330,9 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     "",
     "## Provenance",
     "",
-    `- Raw snapshot: \`${post.rawSnapshot}\``,
+    ...post.rawSources.map(
+      (source) => `- Raw ${source.method}: \`${source.snapshot}\``,
+    ),
     ...media.flatMap((item) =>
       item.extraction ? [`- Vision model for ${item.mediaKey}: \`${item.extraction.model}\``] : [],
     ),

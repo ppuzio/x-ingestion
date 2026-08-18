@@ -1,0 +1,57 @@
+import { readFile, readdir } from "node:fs/promises";
+import { basename, resolve } from "node:path";
+
+import type { CaptureMethod, SavedPost } from "../model.ts";
+import { mergeSavedPosts, normalizeLikesResponse } from "./normalize.ts";
+
+export const snapshotPattern = /^(likes|bookmarks)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:-page-\d{3})?\.json$/;
+
+export async function latestSnapshots(): Promise<string[]> {
+  const directory = resolve("data/raw");
+  const snapshots = (await readdir(directory)).flatMap((name) => {
+    const match = name.match(snapshotPattern);
+    return match ? [{ name, collection: match[1]!, timestamp: match[2]! }] : [];
+  });
+  const latestTimestamp = snapshots.map(({ timestamp }) => timestamp).sort().at(-1);
+  if (!latestTimestamp) throw new Error("No raw X snapshots found in data/raw");
+  return snapshots
+    .filter(({ timestamp }) => timestamp === latestTimestamp)
+    .sort(
+      (a, b) =>
+        Number(b.collection === "likes") - Number(a.collection === "likes") ||
+        a.name.localeCompare(b.name),
+    )
+    .map(({ name }) => resolve(directory, name));
+}
+
+export function snapshotTimestamp(path: string): string | undefined {
+  return basename(path).match(snapshotPattern)?.[2];
+}
+
+function capturedAt(path: string): string {
+  const timestamp = snapshotTimestamp(path);
+  return timestamp
+    ? `${timestamp.slice(0, 10)}T${timestamp.slice(11).replaceAll("-", ":")}Z`
+    : new Date().toISOString();
+}
+
+function captureMethod(path: string): CaptureMethod {
+  return basename(path).startsWith("bookmarks-") ? "bookmark" : "like";
+}
+
+export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
+  return mergeSavedPosts(
+    (
+      await Promise.all(
+        paths.map(async (path) =>
+          normalizeLikesResponse(
+            JSON.parse(await readFile(path, "utf8")) as unknown,
+            path,
+            capturedAt(path),
+            captureMethod(path),
+          ),
+        ),
+      )
+    ).flat(),
+  );
+}

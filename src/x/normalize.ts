@@ -1,6 +1,7 @@
 import type {
   ArticleFragment,
   ContentFragment,
+  CaptureMethod,
   LinkFragment,
   MediaFragment,
   PostRelationship,
@@ -145,11 +146,12 @@ function mediaFrom(
 export function normalizeLikesResponse(
   input: unknown,
   rawSnapshot: string,
-  capturedAt: string
+  capturedAt: string,
+  captureMethod: CaptureMethod = "like",
 ): SavedPost[] {
   const response = object(input);
-  if (!response || !Array.isArray(response.data)) {
-    throw new Error("Raw X response must contain a data array");
+  if (!response || (response.data !== undefined && !Array.isArray(response.data))) {
+    throw new Error("Raw X response data must be an array when present");
   }
 
   const includes = object(response.includes);
@@ -172,7 +174,7 @@ export function normalizeLikesResponse(
     })
   );
 
-  return response.data.map((item, index) => {
+  return (response.data ?? []).map((item, index) => {
     const post = object(item);
     const id = string(post?.id);
     const rootText = string(post?.text);
@@ -256,8 +258,24 @@ export function normalizeLikesResponse(
       author,
       fragments,
       relationships,
-      rawSnapshot,
-      raw: post,
+      captureMethods: [captureMethod],
+      rawSources: [{ method: captureMethod, snapshot: rawSnapshot, post }],
     };
   });
+}
+
+export function mergeSavedPosts(posts: SavedPost[]): SavedPost[] {
+  const merged = new Map<string, SavedPost>();
+  for (const post of posts) {
+    const existing = merged.get(post.id);
+    if (!existing) {
+      merged.set(post.id, post);
+      continue;
+    }
+    existing.captureMethods = [
+      ...new Set([...existing.captureMethods, ...post.captureMethods]),
+    ];
+    existing.rawSources.push(...post.rawSources);
+  }
+  return [...merged.values()];
 }

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -18,30 +18,15 @@ import {
   renderObsidianNote,
   type ConceptVocabulary,
 } from "../obsidian/render.ts";
-import { normalizeLikesResponse } from "../x/normalize.ts";
+import {
+  latestSnapshots,
+  loadSnapshots,
+  snapshotPattern,
+} from "../x/snapshots.ts";
 
 const previewRoot = resolve("data/obsidian-preview");
 const enrichmentRoot = resolve("data/enrichment");
 const execFileAsync = promisify(execFile);
-
-async function latestSnapshot(): Promise<string> {
-  const directory = resolve("data/raw");
-  const snapshots = (await readdir(directory))
-    .filter((name) => /^likes-.*\.json$/.test(name))
-    .sort();
-  const latest = snapshots.at(-1);
-  if (!latest) throw new Error("No raw likes snapshots found in data/raw");
-  return resolve(directory, latest);
-}
-
-function capturedAtFromFilename(path: string): string {
-  const match = basename(path).match(
-    /^likes-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})\.json$/,
-  );
-  return match
-    ? `${match[1]}T${match[2]}:${match[3]}:${match[4]}Z`
-    : new Date().toISOString();
-}
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -352,16 +337,11 @@ async function prepareSynthesis(
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const enrich = arguments_.includes("--enrich");
-  const snapshot = resolve(
-    arguments_.find((argument) => !argument.startsWith("--")) ??
-      (await latestSnapshot()),
-  );
-  const raw = JSON.parse(await readFile(snapshot, "utf8")) as unknown;
-  const posts = normalizeLikesResponse(
-    raw,
-    snapshot,
-    capturedAtFromFilename(snapshot),
-  );
+  const requestedSnapshot = arguments_.find((argument) => !argument.startsWith("--"));
+  const snapshots = requestedSnapshot
+    ? [resolve(requestedSnapshot)]
+    : await latestSnapshots();
+  const posts = await loadSnapshots(snapshots);
   const apiKey = process.env.OPENROUTER_KEY?.trim();
   const visionModel =
     process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
@@ -388,7 +368,7 @@ async function main(): Promise<void> {
 
   const normalizedPath = resolve(
     "data/normalized",
-    basename(snapshot).replace(/\.json$/, ".normalized.json"),
+    `x-${basename(snapshots[0]!).match(snapshotPattern)?.[2] ?? Date.now()}.normalized.json`,
   );
   await saveJson(normalizedPath, posts);
   await writeFile(

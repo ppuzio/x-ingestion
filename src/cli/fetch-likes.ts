@@ -1,8 +1,12 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { fetchAndSaveLikes } from "../x/fetch-likes.ts";
-import { refreshXUserToken, XApiError } from "../x/client.ts";
+import {
+  refreshXUserToken,
+  XApiError,
+  type XCollection,
+} from "../x/client.ts";
+import { fetchAndSaveCollection } from "../x/fetch-likes.ts";
 
 function requiredEnvironmentVariable(name: string): string {
   const value = process.env[name]?.trim();
@@ -15,37 +19,79 @@ function requiredEnvironmentVariable(name: string): string {
 async function main(): Promise<void> {
   const userId = requiredEnvironmentVariable("X_USER_ID");
   let bearerToken = requiredEnvironmentVariable("X_BEARER_TOKEN");
-  let outputPath: string;
-  try {
-    outputPath = await fetchAndSaveLikes({ bearerToken, userId });
-  } catch (error) {
-    if (!(error instanceof XApiError) || error.status !== 401) throw error;
+  const now = new Date();
+  let refreshed = false;
+  let fetchedAny = false;
 
-    const refreshToken = requiredEnvironmentVariable("X_REFRESH_TOKEN");
-    const clientId = requiredEnvironmentVariable("X_CLIENT_ID");
-    const envPath = resolve(".env");
-    const env = await readFile(envPath, "utf8");
-    const refreshed = await refreshXUserToken(refreshToken, clientId);
-    bearerToken = refreshed.accessToken;
-    const updatedEnv = [
-      ["X_BEARER_TOKEN", refreshed.accessToken],
-      ["X_REFRESH_TOKEN", refreshed.refreshToken],
-    ].reduce(
-      (contents, [name, value]) =>
-        contents.replace(
-          new RegExp(`^${name}=.*$`, "m"),
-          `${name}=${JSON.stringify(value)}`,
-        ),
-      env,
-    );
-    const temporaryPath = `${envPath}.tmp`;
-    await writeFile(temporaryPath, updatedEnv, { encoding: "utf8", mode: 0o600 });
-    await rename(temporaryPath, envPath);
-    outputPath = await fetchAndSaveLikes({ bearerToken, userId });
-    console.log("Refreshed expired X user access token in .env");
+  for (const collection of ["likes", "bookmarks"] satisfies XCollection[]) {
+    try {
+      let result: Awaited<ReturnType<typeof fetchAndSaveCollection>>;
+      try {
+        result = await fetchAndSaveCollection({
+          bearerToken,
+          userId,
+          collection,
+          now,
+        });
+      } catch (error) {
+        const refreshToken = process.env.X_REFRESH_TOKEN?.trim();
+        const clientId = process.env.X_CLIENT_ID?.trim();
+        if (
+          !(error instanceof XApiError) ||
+          error.status !== 401 ||
+          refreshed ||
+          !refreshToken ||
+          !clientId
+        ) {
+          throw error;
+        }
+
+        const envPath = resolve(".env");
+        const env = await readFile(envPath, "utf8");
+        const tokens = await refreshXUserToken(refreshToken, clientId);
+        bearerToken = tokens.accessToken;
+        const updatedEnv = [
+          ["X_BEARER_TOKEN", tokens.accessToken],
+          ["X_REFRESH_TOKEN", tokens.refreshToken],
+        ].reduce((contents, [name, value]) => {
+          const pattern = new RegExp(`^${name}=.*$`, "m");
+          const line = `${name}=${JSON.stringify(value)}`;
+          return pattern.test(contents)
+            ? contents.replace(pattern, line)
+            : `${contents.trimEnd()}\n${line}\n`;
+        }, env);
+        const temporaryPath = `${envPath}.tmp`;
+        await writeFile(temporaryPath, updatedEnv, {
+          encoding: "utf8",
+          mode: 0o600,
+        });
+        await rename(temporaryPath, envPath);
+        refreshed = true;
+        console.log("Refreshed expired X user access token in .env");
+        result = await fetchAndSaveCollection({
+          bearerToken,
+          userId,
+          collection,
+          now,
+        });
+      }
+
+      fetchedAny = true;
+      console.log(
+        `Saved ${result.postCount} ${collection} across ${result.paths.length} raw page(s)`,
+      );
+    } catch (error) {
+      if (error instanceof XApiError && [401, 403].includes(error.status)) {
+        console.warn(`Skipped ${collection}: X rejected this token (${error.status})`);
+        continue;
+      }
+      throw error;
+    }
   }
 
-  console.log(`Saved raw X response to ${outputPath}`);
+  if (!fetchedAny) {
+    throw new Error("X rejected both likes and bookmarks; check OAuth scopes");
+  }
 }
 
 main().catch((error: unknown) => {

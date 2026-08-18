@@ -4,6 +4,14 @@ export interface SavedAuthor {
   name?: string;
 }
 
+export type CaptureMethod = "like" | "bookmark";
+
+export interface RawSource {
+  method: CaptureMethod;
+  snapshot: string;
+  post: unknown;
+}
+
 export interface Translation {
   sourceLanguage: string;
   targetLanguage: "en";
@@ -103,6 +111,6 @@ export interface SavedPost {
   fragments: ContentFragment[];
   relationships: PostRelationship[];
   enrichment?: PostEnrichment;
-  rawSnapshot: string;
-  raw: unknown;
+  captureMethods: CaptureMethod[];
+  rawSources: RawSource[];
 }
