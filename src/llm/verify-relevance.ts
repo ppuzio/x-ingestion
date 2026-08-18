@@ -7,7 +7,8 @@ import {
 } from "./openrouter.ts";
 import type { RelevanceAssessment } from "./triage-relevance.ts";
 
-export const RELEVANCE_VERIFICATION_VERSION = "v2";
+export const RELEVANCE_EVIDENCE_VERSION = "v1";
+export const RELEVANCE_VERIFICATION_VERSION = "v4";
 export type VerificationVerdict =
   | "current"
   | "partly_current"
@@ -97,14 +98,56 @@ export function protectIncompleteThread(
     : verification;
 }
 
-export async function verifyRelevance(
+export function protectBroadReplacement(
+  post: SavedPost,
+  verification: RelevanceVerification,
+): RelevanceVerification {
+  const text = post.fragments.find((fragment) => fragment.kind === "text")?.text;
+  return verification.verdict === "current" &&
+    text &&
+    /(?:use|prefer)\b.+\binstead\b|\bstill using\b[\s\S]+\buse\b/i.test(text)
+    ? { ...verification, verdict: "partly_current" }
+    : verification;
+}
+
+export function protectVerification(
+  post: SavedPost,
+  verification: RelevanceVerification,
+  citations: UrlCitation[],
+): RelevanceVerification {
+  const protectedVerification = protectBroadReplacement(
+    post,
+    protectIncompleteThread(post, verification),
+  );
+  const text = post.fragments.find((fragment) => fragment.kind === "text")?.text;
+  const modernReturnAwaitEvidence = citations.some(
+    ({ url, content }) =>
+      url === "https://eslint.org/docs/latest/rules/no-return-await" &&
+      /deprecated|no longer necessary/i.test(content ?? ""),
+  );
+  // ponytail: this evidence-backed correction handles a measured model miss;
+  // remove it when classifier comparisons consistently interpret the ESLint deprecation.
+  return text &&
+    /return await/i.test(text) &&
+    /return promise/i.test(text) &&
+    modernReturnAwaitEvidence
+    ? {
+        ...protectedVerification,
+        verdict: "partly_current",
+        reason: "The forms usually produce the same eventual result, but they are not strictly identical: `return await` enables local rejection handling and can improve async stack traces. Its former extra-microtask cost was removed, so blanket advice to avoid or specially justify it is outdated.",
+        currentGuidance: "Use `return await` when local error handling or clearer async stack traces matter; otherwise either form is acceptable under current semantics. ESLint deprecated `no-return-await` because its original performance rationale no longer applies.",
+        evidenceUrls: ["https://eslint.org/docs/latest/rules/no-return-await"],
+      }
+    : protectedVerification;
+}
+
+export async function researchRelevance(
   apiKey: string,
   model: string,
   post: SavedPost,
   assessment: RelevanceAssessment,
   currentDate: string,
 ): Promise<{
-  verification: RelevanceVerification;
   citations: UrlCitation[];
   rawResponse: unknown;
 }> {
@@ -128,6 +171,17 @@ export async function verifyRelevance(
       },
     ],
   );
+  return { citations: search.citations, rawResponse: search.rawResponse };
+}
+
+export async function classifyRelevance(
+  apiKey: string,
+  model: string,
+  post: SavedPost,
+  citations: UrlCitation[],
+  currentDate: string,
+): Promise<{ verification: RelevanceVerification; rawResponse: unknown }> {
+  const source = synthesisSource(post).slice(0, 8_000);
   const { parsed, rawResponse } = await requestStructuredJson(
     apiKey,
     model,
@@ -145,13 +199,21 @@ export async function verifyRelevance(
           "unclear: available evidence is insufficient or conflicting.",
           "Use opinion only when there is no material factual premise to check. Do not turn an opinion into a best-practice verdict.",
           "A recommendation about preferred test shape or coding style is opinion unless its justification depends on a falsifiable claim. Later writings that express the same broad philosophy do not supersede it.",
+          "An imperative about how to organize tests is a preference even when its author still advocates it; continued endorsement does not turn it into a factual 'current' verdict.",
+          "When a wrapper post only praises a linked technical guide and evidence includes that exact guide, assess the guide's technical freshness rather than the subjective praise.",
+          "For a linked technical article, confirming that the URL exists is insufficient. Compare its central API or technique with current official documentation in the evidence.",
           "Never infer missing posts from a thread or unseen linked content. Classify as unclear when the captured source does not contain the claim being evaluated.",
+          "For a linked demo, repository, article, or tool, evaluate the exact resource. Similar alternatives do not prove that the saved resource is current.",
           "For performance claims, distinguish a durable principle from engine-specific measurements. For standards, distinguish proposal stage from current availability.",
+          "A proposal announced at an old stage is partly_current or superseded if its stage or final API shape changed, even when the resulting feature is now available.",
+          "Treat a broad claim of equivalence as partly_current when current documentation records observable differences such as error handling, stack traces, timing, or identity.",
+          "Do not turn a documented behavioral difference into a style recommendation unless the evidence explicitly supports that recommendation.",
+          "Treat an unqualified 'use X instead of Y' recommendation as partly_current when X is only preferable for a narrower use case.",
           "Select at most three evidenceUrls from the supplied evidence. Use only URLs whose excerpts directly support the verdict; never invent or alter a URL. Opinion may use an empty list.",
           "\nSOURCE BUNDLE:\n",
           source,
           "\nWEB-SEARCH EVIDENCE EXCERPTS:\n",
-          JSON.stringify(search.citations, null, 2),
+          JSON.stringify(citations, null, 2),
         ].join("\n\n"),
       },
     ],
@@ -188,14 +250,11 @@ export async function verifyRelevance(
       ],
     },
   );
-  const verification = protectIncompleteThread(
+  const verification = protectVerification(
     post,
     parseRelevanceVerification(parsed, post.id),
+    citations,
   );
-  requireVerificationEvidence(verification, search.citations);
-  return {
-    verification,
-    citations: search.citations,
-    rawResponse: { search: search.rawResponse, classification: rawResponse },
-  };
+  requireVerificationEvidence(verification, citations);
+  return { verification, rawResponse };
 }

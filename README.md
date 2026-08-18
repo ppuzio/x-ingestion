@@ -37,7 +37,8 @@ OPENROUTER_VISION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRANSLATION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_SYNTHESIS_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRIAGE_MODEL=qwen/qwen3-vl-32b-instruct
-OPENROUTER_VERIFICATION_MODEL=qwen/qwen3-vl-32b-instruct
+OPENROUTER_VERIFICATION_MODEL=openai/gpt-5-mini
+OPENROUTER_SEARCH_MODEL=openai/gpt-5-mini
 ```
 
 Despite the variable's original name, `X_BEARER_TOKEN` must contain the OAuth
@@ -158,10 +159,13 @@ Verify those candidates using OpenRouter web search:
 ```bash
 npm run verify:relevance
 npm run verify:relevance -- --limit=3
+npm run verify:relevance -- --post=1500196959235227648 --refresh-evidence
 ```
 
-Results are cached per day and written to `_Relevance_Verification.md` with
-source links. Factual verdicts without citations are rejected. Opinion is kept
+Search evidence and classifications are cached separately, so changing
+`OPENROUTER_VERIFICATION_MODEL` reuses the same searches. Results are written
+to `_Relevance_Verification.md` with up to three selected source links. Factual
+verdicts without citations are rejected. Opinion is kept
 separate from `current`/`superseded`, and this step also never deletes content.
 
 Post synthesis consumes normalized text plus completed translation and visual

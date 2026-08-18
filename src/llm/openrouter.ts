@@ -79,15 +79,15 @@ export async function requestStructuredJson(
   schema: JsonObject,
 ): Promise<{ parsed: unknown; rawResponse: unknown; citations: UrlCitation[] }> {
   const rawResponse = await requestOpenRouter(apiKey, {
-      model,
-      temperature: 0,
-      max_tokens: 4_000,
-      messages: [{ role: "user", content }],
-      response_format: {
-        type: "json_schema",
-        json_schema: { name: schemaName, strict: true, schema },
-      },
-      provider: { require_parameters: true },
+    model,
+    ...(!model.startsWith("openai/gpt-5") ? { temperature: 0 } : {}),
+    max_tokens: 4_000,
+    messages: [{ role: "user", content }],
+    response_format: {
+      type: "json_schema",
+      json_schema: { name: schemaName, strict: true, schema },
+    },
+    provider: { require_parameters: true },
   });
   const message = responseMessage(rawResponse);
   const messageContent = message?.content;
@@ -113,7 +113,7 @@ export async function requestWebSearch(
 ): Promise<{ text: string; citations: UrlCitation[]; rawResponse: unknown }> {
   const rawResponse = await requestOpenRouter(apiKey, {
     model,
-    temperature: 0,
+    ...(!model.startsWith("openai/gpt-5") ? { temperature: 0 } : {}),
     max_tokens: 3_000,
     messages: [{ role: "user", content }],
     tools: [

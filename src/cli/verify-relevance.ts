@@ -9,10 +9,13 @@ import {
   type RelevanceAssessment,
 } from "../llm/triage-relevance.ts";
 import {
+  RELEVANCE_EVIDENCE_VERSION,
   RELEVANCE_VERIFICATION_VERSION,
+  classifyRelevance,
   parseRelevanceVerification,
+  protectVerification,
+  researchRelevance,
   requireVerificationEvidence,
-  verifyRelevance,
   type RelevanceVerification,
   type VerificationVerdict,
 } from "../llm/verify-relevance.ts";
@@ -105,7 +108,10 @@ function report(
       lines.push(
         `- [${titleFor(post).replaceAll("]", "\\]")}](${post.url}) — ${verification.reason}`,
         `  - Current guidance: ${verification.currentGuidance}`,
-        ...citations.filter(({ url }) => verification.evidenceUrls.includes(url)).map(
+        ...citations.filter(
+          ({ url }) =>
+            url.startsWith("https://") && verification.evidenceUrls.includes(url),
+        ).map(
           ({ url, title }) => `  - Source: [${(title || url).replaceAll("]", "\\]")}](${url})`,
         ),
       );
@@ -115,6 +121,9 @@ function report(
 }
 
 async function main(): Promise<void> {
+  const postArgument = process.argv.find((argument) => argument.startsWith("--post="));
+  const postId = postArgument?.slice("--post=".length);
+  const refreshEvidence = process.argv.includes("--refresh-evidence");
   const limitArgument = process.argv.find((argument) => argument.startsWith("--limit="));
   const limit = limitArgument
     ? Number.parseInt(limitArgument.slice("--limit=".length), 10)
@@ -129,7 +138,9 @@ async function main(): Promise<void> {
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
     "qwen/qwen3-vl-32b-instruct";
   const model =
-    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || triageModel;
+    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5-mini";
+  const searchModel =
+    process.env.OPENROUTER_SEARCH_MODEL?.trim() || model;
   const triageRoot = resolve(
     "data/enrichment/relevance-triage",
     RELEVANCE_TRIAGE_VERSION,
@@ -149,8 +160,17 @@ async function main(): Promise<void> {
   if (!eligible.length) {
     throw new Error("No time-sensitive triage results found; run npm run triage:relevance first");
   }
+  const selected = postId
+    ? eligible.filter(({ post }) => post.id === postId)
+    : eligible.slice(0, limit);
+  if (!selected.length) throw new Error(`No eligible triage result found for ${postId}`);
 
   const date = new Date().toISOString().slice(0, 10);
+  const evidenceRoot = resolve(
+    "data/enrichment/relevance-evidence",
+    RELEVANCE_EVIDENCE_VERSION,
+    date,
+  );
   const cacheRoot = resolve(
     "data/enrichment/relevance-verification",
     RELEVANCE_VERIFICATION_VERSION,
@@ -163,22 +183,68 @@ async function main(): Promise<void> {
     citations: UrlCitation[];
   }>;
   let created = 0;
-  for (const { post, assessment } of eligible.slice(0, limit)) {
-    const path = resolve(cacheRoot, `${post.id}.json`);
-    if (await exists(path)) {
-      const cached = JSON.parse(await readFile(path, "utf8")) as {
-        verification?: unknown;
+  let searched = 0;
+  for (const { post, assessment } of selected) {
+    const evidencePath = resolve(evidenceRoot, `${post.id}.json`);
+    let citations: UrlCitation[] = [];
+    if (!refreshEvidence && await exists(evidencePath)) {
+      const cached = JSON.parse(await readFile(evidencePath, "utf8")) as {
         citations?: unknown;
       };
-      const verification = parseRelevanceVerification(cached.verification, post.id);
-      const citations = cachedCitations(cached.citations);
+      citations = cachedCitations(cached.citations);
+    } else {
+      const legacyPath = resolve(
+        "data/enrichment/relevance-verification/v2",
+        modelDirectory(triageModel),
+        date,
+        `${post.id}.json`,
+      );
+      if (!refreshEvidence && await exists(legacyPath)) {
+        const legacy = JSON.parse(await readFile(legacyPath, "utf8")) as {
+          citations?: unknown;
+        };
+        citations = cachedCitations(legacy.citations);
+      }
+      if (!citations.length) {
+        const evidence = await researchRelevance(
+          apiKey,
+          searchModel,
+          post,
+          assessment,
+          date,
+        );
+        citations = evidence.citations;
+        await saveJson(
+          resolve(evidenceRoot, "raw", `${post.id}.json`),
+          evidence.rawResponse,
+        );
+        searched += 1;
+      }
+      await saveJson(evidencePath, {
+        citations,
+        searchModel,
+        evidenceVersion: RELEVANCE_EVIDENCE_VERSION,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    const path = resolve(cacheRoot, `${post.id}.json`);
+    if (!refreshEvidence && await exists(path)) {
+      const cached = JSON.parse(await readFile(path, "utf8")) as {
+        verification?: unknown;
+      };
+      const verification = protectVerification(
+        post,
+        parseRelevanceVerification(cached.verification, post.id),
+        citations,
+      );
       requireVerificationEvidence(verification, citations);
       rows.push({ post, verification, citations });
       continue;
     }
-    let result: Awaited<ReturnType<typeof verifyRelevance>>;
+    let result: Awaited<ReturnType<typeof classifyRelevance>>;
     try {
-      result = await verifyRelevance(apiKey, model, post, assessment, date);
+      result = await classifyRelevance(apiKey, model, post, citations, date);
     } catch (error) {
       throw new Error(
         `Post ${post.id}: ${error instanceof Error ? error.message : error}`,
@@ -186,20 +252,21 @@ async function main(): Promise<void> {
     }
     await saveJson(path, {
       verification: result.verification,
-      citations: result.citations,
       model,
       promptVersion: RELEVANCE_VERIFICATION_VERSION,
       createdAt: new Date().toISOString(),
     });
     await saveJson(resolve(cacheRoot, "raw", `${post.id}.json`), result.rawResponse);
-    rows.push({ post, verification: result.verification, citations: result.citations });
+    rows.push({ post, verification: result.verification, citations });
     created += 1;
   }
 
   const reportPath = resolve("data/obsidian-preview/_Relevance_Verification.md");
   await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(reportPath, report(rows, model, eligible.length, date), "utf8");
-  console.log(`Verified ${rows.length} posts (${created} new) and wrote ${reportPath}`);
+  console.log(
+    `Verified ${rows.length} posts (${created} new classifications, ${searched} new searches) and wrote ${reportPath}`,
+  );
 }
 
 main().catch((error: unknown) => {
