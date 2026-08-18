@@ -96,6 +96,49 @@ export interface FetchLikedPostsOptions {
   maxResults?: number;
 }
 
+export class XApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function refreshXUserToken(
+  refreshToken: string,
+  clientId: string,
+): Promise<{ accessToken: string; refreshToken: string }> {
+  const response = await fetch(`${API_BASE_URL}/oauth2/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+      client_id: clientId,
+    }),
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new XApiError(
+      response.status,
+      `X OAuth token refresh failed (${response.status} ${response.statusText}): ${body}`,
+    );
+  }
+
+  const parsed = JSON.parse(body) as Record<string, unknown>;
+  if (typeof parsed.access_token !== "string") {
+    throw new Error("X OAuth token refresh response did not contain an access token");
+  }
+  return {
+    accessToken: parsed.access_token,
+    refreshToken:
+      typeof parsed.refresh_token === "string"
+        ? parsed.refresh_token
+        : refreshToken,
+  };
+}
+
 export function buildLikedPostsUrl(
   userId: string,
   maxResults = 10,
@@ -133,7 +176,8 @@ export async function fetchLikedPostsRaw({
   const body = await response.text();
 
   if (!response.ok) {
-    throw new Error(
+    throw new XApiError(
+      response.status,
       `X API request failed (${response.status} ${response.statusText}): ${body}`,
     );
   }

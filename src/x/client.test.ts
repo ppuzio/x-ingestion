@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { fetchLikedPostsRaw } from "./client.ts";
+import { fetchLikedPostsRaw, refreshXUserToken } from "./client.ts";
 
 test("fetches the requested fields and returns the response body unchanged", async () => {
   const originalFetch = globalThis.fetch;
@@ -19,14 +19,41 @@ test("fetches the requested fields and returns the response body unchanged", asy
     const body = await fetchLikedPostsRaw({
       bearerToken: "secret",
       userId: "123456789",
+      maxResults: 50,
     });
 
     assert.equal(body, rawBody);
     assert.equal(authorization, "Bearer secret");
     assert.equal(requestedUrl?.pathname, "/2/users/123456789/liked_tweets");
-    assert.equal(requestedUrl?.searchParams.get("max_results"), "10");
+    assert.equal(requestedUrl?.searchParams.get("max_results"), "50");
     assert.match(requestedUrl?.searchParams.get("post.fields") ?? "", /entities/);
     assert.match(requestedUrl?.searchParams.get("expansions") ?? "", /referenced_posts/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("refreshes an expired OAuth user token", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = "";
+  globalThis.fetch = (async (_input, init) => {
+    requestBody = String(init?.body);
+    return new Response(
+      JSON.stringify({ access_token: "new-access", refresh_token: "new-refresh" }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+
+  try {
+    const tokens = await refreshXUserToken("old-refresh", "client-id");
+    assert.deepEqual(tokens, {
+      accessToken: "new-access",
+      refreshToken: "new-refresh",
+    });
+    assert.equal(
+      new URLSearchParams(requestBody).get("grant_type"),
+      "refresh_token",
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

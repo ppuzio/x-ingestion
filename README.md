@@ -29,6 +29,8 @@ Fill in `.env`:
 ```env
 X_BEARER_TOKEN=your_token_here
 X_USER_ID=your_numeric_user_id
+X_REFRESH_TOKEN=your_refresh_token
+X_CLIENT_ID=your_oauth_2_client_id
 OPENROUTER_KEY=your_openrouter_key
 OPENROUTER_VISION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRANSLATION_MODEL=qwen/qwen3-vl-32b-instruct
@@ -39,13 +41,18 @@ Despite the variable's original name, `X_BEARER_TOKEN` must contain the OAuth
 2.0 **user access token**, not the app-only Bearer Token shown separately in the
 Developer Console. Do not commit it.
 
-## Fetch one page of likes
+OAuth access tokens expire. With `offline.access` authorized, X also issues a
+refresh token; after a `401`, the fetch command uses it once, updates the
+ignored `.env` atomically, and retries the request.
+
+## Fetch a sample of likes
 
 ```bash
 npm run fetch:likes
 ```
 
-The command requests 10 posts and writes the exact successful response body to:
+The command requests 50 posts in one page and writes the exact successful
+response body to:
 
 ```text
 data/raw/likes-YYYY-MM-DDTHH-mm-ss.json
@@ -64,7 +71,7 @@ GET https://api.x.com/2/users/{X_USER_ID}/liked_tweets
 
 with these query parameters:
 
-- `max_results=10`
+- `max_results=50`
 - `post.fields=article,article_title,attachments,author_id,card_uri,community_id,context_annotations,conversation_id,created_at,display_text_range,edit_controls,entities,geo,id,lang,media_metadata,note_post,paid_partnership,possibly_sensitive,public_metrics,reply_settings,source,text,withheld`
 - `expansions=article.cover_media,article.media_entities,attachments.media_keys,attachments.media_source_tweet,attachments.poll_ids,author_id,edit_history_post_ids,entities.mentions.username,geo.place_id,in_reply_to_user_id,referenced_posts`
 - `user.fields=created_at,description,entities,id,location,name,profile_image_url,protected,public_metrics,url,username,verified,verified_type,withheld`
@@ -107,7 +114,9 @@ data/obsidian-preview/
 
 These directories are generated, gitignored, and separate from any real
 Obsidian vault. OpenRouter responses are cached by model plus post or media ID,
-so rerunning the same benchmark does not repeat successful paid calls. Root screenshots are
+so rerunning the same or an overlapping snapshot does not repeat successful
+paid calls. Media is also archived by media ID; normalization and Markdown
+rendering may run again because they are local and deterministic. Root screenshots are
 archived and analyzed. Attached videos up to 10 minutes are archived at a
 moderate resolution, sampled into a six-frame contact sheet with `ffmpeg`, and
 visually analyzed. Longer videos are not downloaded: `ffmpeg` seeks to six
