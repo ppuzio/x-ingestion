@@ -59,7 +59,11 @@ optional, separate app-only token; likes and bookmarks continue to use
 
 ```bash
 npm run fetch:x
+npm run fetch:x -- --refresh
 ```
+
+`--refresh` explicitly replaces a rejected user access token using the saved
+OAuth 2.0 refresh token; ordinary `403` responses remain non-refreshing.
 
 Each source is fetched independently, up to 1,000 posts in pages of 100. A
 `401` or `403` from one source is reported and skipped, so a token with only
@@ -103,6 +107,12 @@ referenced posts), pagination information under `meta`, and possibly an
 canonical records are generated separately and retain pointers to every raw
 source. Posts present in both collections are deduplicated by X post ID and
 record both `like` and `bookmark` under `capture_methods`.
+After a successful fetch, `data/state/sync.json` records a source fingerprint
+and capture methods for each current post, reporting new, changed, and
+unchanged IDs. The state file is ignored with the rest of `data/`. Synthesis
+cache entries also carry a full source fingerprint, so unchanged posts reuse
+their existing enrichment while edited posts or newly captured context are
+eligible for another synthesis.
 
 For a known multi-post thread, optionally fetch only that conversation's posts
 from the focal author:
@@ -111,11 +121,32 @@ from the focal author:
 npm run fetch:thread -- --post=1496273922714902528
 ```
 
-This calls `GET https://api.x.com/2/tweets/search/all` with
-`query=conversation_id:{conversation_id} from:{username}` and requires
+This calls `GET https://api.x.com/2/tweets/search/all` for at most 500 self-replies
+by the focal author during the following 24 hours and requires
 `X_ARCHIVE_BEARER_TOKEN` plus full-archive access. The raw response is saved as
 `data/raw/thread-{post_id}-{timestamp}.json`; normalization retains at most 25
-same-author replies reachable from the saved post and ignores side replies.
+same-author replies reachable from the saved post and ignores unrelated posts
+and side replies.
+
+When review identifies one exact context post outside that reply chain, attach
+it without crawling the surrounding conversation:
+
+```bash
+npm run fetch:thread -- --post=1946249533543076159 --context=1946464726109782340
+```
+
+After thread/context capture exposes an external article, fetch that post's
+captured links explicitly:
+
+```bash
+npm run fetch:links -- --post=1948581763154149606
+```
+
+This saves the unchanged HTML plus validated readable text under
+`data/raw/web/{post_id}/`. It follows at most five public redirects, refuses
+local/private addresses and non-HTML responses, stops after 20 seconds or 2 MB,
+and fetches at most five links for one explicitly selected post. Captured page
+text is then included in normalization, synthesis, and Markdown rendering.
 
 See X's official [Get Users Liked Posts reference](https://docs.x.com/x-api/users/get-liked-posts),
 [Get Bookmarks reference](https://docs.x.com/x-api/users/get-bookmarks),
@@ -135,7 +166,15 @@ synthesis through OpenRouter:
 
 ```bash
 npm run preview:enrich
+npm run preview:enrich -- --post=1528800617233125376
+npm run preview:enrich -- --post=1496273922714902528 --refresh-synthesis
 ```
+
+`--post` enriches one saved post without replacing the full preview index.
+`--refresh-synthesis` replaces only its cached whole-post synthesis while
+reusing downloaded media, OCR, and translations.
+Generated note filenames use underscores instead of spaces for reliable
+Obsidian wikilinks; note titles and headings retain their readable spacing.
 
 Outputs are written to:
 
@@ -146,15 +185,17 @@ data/obsidian-preview/
 ```
 
 These directories are generated, gitignored, and separate from any real
-Obsidian vault. OpenRouter responses are cached by model plus post or media ID,
-so rerunning the same or an overlapping snapshot does not repeat successful
-paid calls. Media is also archived by media ID; normalization and Markdown
+Obsidian vault. Post synthesis is cached by model, prompt, and source
+fingerprint, while media extraction is cached by model and media ID, so
+rerunning the same or an overlapping snapshot does not repeat successful paid
+calls. Media is also archived by media ID; normalization and Markdown
 rendering may run again because they are local and deterministic. Root screenshots are
 archived and analyzed. Attached videos up to 10 minutes are archived at a
 moderate resolution, sampled into a six-frame contact sheet with `ffmpeg`, and
 visually analyzed. Longer videos are not downloaded: `ffmpeg` seeks to six
 remote timestamps and only the fixed-size contact sheet is saved. Audio
 transcription remains pending. X Article text is rendered directly,
+captured external HTML is rendered as a linked page,
 while inline article media remains referenced until reliable placement can be
 determined. X's `zxx` label is retained as `source_language` for link-only
 wrapper posts and is not applied to the linked article body.
@@ -164,6 +205,7 @@ Run an optional, cached relevance triage without web search:
 ```bash
 npm run triage:relevance
 npm run triage:relevance -- --limit=20
+npm run triage:relevance -- --post=1496273922714902528 --refresh
 ```
 
 It classifies posts as `durable`, `time_sensitive`, `non_knowledge`, or `unclear`
@@ -172,11 +214,14 @@ deletes or hides content. Only
 `time_sensitive` items receive a suggested query; no web search is performed
 by this command. Attached media does not make otherwise useful text unclear;
 missing media or links only prevent a `non_knowledge` verdict.
+Reviewed post-specific decisions live in `config/relevance.json` and override
+cached model triage without changing or deleting source material.
 
 Verify those candidates using OpenRouter web search:
 
 ```bash
 npm run verify:relevance
+npm run verify:relevance -- --report-only
 npm run verify:relevance -- --limit=3
 npm run verify:relevance -- --post=1500196959235227648 --refresh-evidence
 ```
@@ -188,11 +233,13 @@ the authoritative combined view in which verification replaces preliminary
 triage labels. Reports include up to three selected source links. Factual
 verdicts without citations are rejected. Opinion is kept
 separate from `current`/`superseded`, and this step also never deletes content.
+`--report-only` reuses existing dated caches and makes no OpenRouter calls.
 
 Post synthesis consumes normalized text plus completed translation and visual
 extractions. It produces cached, runtime-validated JSON for summaries, topics,
-concepts, technologies, people, claims, and relevance. Prompt `v4` excludes
-low-level image-extraction uncertainty from whole-post synthesis. Automatic
+concepts, technologies, people, claims, and relevance. Prompt `v5` keeps X
+link-wrapper commentary out of claims and excludes low-level image-extraction
+uncertainty from whole-post synthesis. Automatic
 follow-up generation is deliberately omitted until a note has a concrete user
 goal; source-level uncertainty and pending-processing flags remain visible.
 Model selection is configurable, and source text is capped at 60,000

@@ -4,6 +4,7 @@ import type {
   MediaFragment,
   SavedPost,
   TextFragment,
+  WebPageFragment,
 } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
 
@@ -32,8 +33,12 @@ function titleFor(post: SavedPost): string {
   const article = post.fragments.find(
     (fragment): fragment is ArticleFragment => fragment.kind === "article",
   );
+  const webPage = post.fragments.find(
+    (fragment): fragment is WebPageFragment => fragment.kind === "web_page",
+  );
   const line =
     article?.title ??
+    webPage?.title ??
     textFragment(post)
       .text.split("\n")
       .map((value) => stripUrls(value).trim())
@@ -44,7 +49,16 @@ function titleFor(post: SavedPost): string {
 }
 
 function filenameFor(title: string, id: string): string {
-  return `${safeName(title).slice(0, 90) || "X post"} -- ${safeName(id)}.md`;
+  const filenamePart = (value: string, limit = Number.POSITIVE_INFINITY) => {
+    // Quotes drop out so "author's" reads as "authors"; everything else outside
+    // the allowlist — including every character safeName guards — collapses to
+    // one underscore.
+    const sanitized = value
+      .replace(/[\u0060\u0027\u2019]/g, "")
+      .replace(/[^\p{L}\p{N}_.-]+/gu, "_");
+    return sanitized.slice(0, limit).replace(/_+$/g, "");
+  };
+  return `${filenamePart(title, 90) || "X_post"}--${filenamePart(id)}.md`;
 }
 
 function list(values: string[]): string[] {
@@ -175,9 +189,13 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
   const links = post.fragments.filter(
     (fragment): fragment is LinkFragment => fragment.kind === "link",
   );
+  const webPages = post.fragments.filter(
+    (fragment): fragment is WebPageFragment => fragment.kind === "web_page",
+  );
   const contentTypes = [
     "text",
     ...articles.map(() => "article"),
+    ...webPages.map(() => "web_page"),
     ...media.map((item) => item.mediaType),
     ...post.relationships.map((item) => item.type),
   ].filter((value, index, all) => all.indexOf(value) === index);
@@ -225,6 +243,9 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
       ? [`video_archived: ${videos.every((item) => item.archived === true)}`]
       : []),
     `needs_synthesis: ${!enrichment}`,
+    ...(post.relevance
+      ? [`relevance_status: ${JSON.stringify(post.relevance.verdict)}`]
+      : []),
     ...(topics.length
       ? ["topics:", ...topics.map((value) => `  - ${JSON.stringify(value)}`)]
       : []),
@@ -263,6 +284,18 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     }
   }
 
+  for (const page of webPages) {
+    lines.push(
+      "",
+      `## Linked page: ${page.title}`,
+      "",
+      `[Open linked page](${page.url})`,
+      ...(page.byline ? ["", `By ${page.byline}`] : []),
+      "",
+      page.text,
+    );
+  }
+
   const visibleMedia = media.filter((item) => item.role !== "article");
   if (visibleMedia.length) {
     lines.push("", "## Media");
@@ -278,6 +311,15 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
         "",
         `[Open referenced post](${relationship.url})`,
         ...(relationship.text ? ["", relationship.text] : []),
+        ...(relationship.links?.length
+          ? [
+              "",
+              ...relationship.links.map(
+                (link) =>
+                  `- [${(link.title ?? link.url).replaceAll("]", "\\]")}](${link.url})`,
+              ),
+            ]
+          : []),
       );
     }
   }
@@ -294,6 +336,23 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
   }
 
   lines.push("", "## Summary", "", enrichment?.summary ?? "_Pending synthesis._");
+
+  if (post.relevance) {
+    lines.push(
+      "",
+      "## Freshness",
+      "",
+      `**${post.relevance.verdict.replaceAll("_", " ")}** — ${post.relevance.reason}`,
+      "",
+      `Current guidance: ${post.relevance.currentGuidance}`,
+      ...(post.relevance.evidenceUrls.length
+        ? [
+            "",
+            ...post.relevance.evidenceUrls.map((url) => `- [Evidence](${url})`),
+          ]
+        : []),
+    );
+  }
 
   if (enrichment) {
     lines.push(

@@ -3,7 +3,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import { enrichPost, SYNTHESIS_PROMPT_VERSION } from "../llm/enrich-post.ts";
+import {
+  enrichPost,
+  synthesisFingerprint,
+  SYNTHESIS_PROMPT_VERSION,
+} from "../llm/enrich-post.ts";
 import { extractImage, translateText } from "../llm/openrouter.ts";
 import type {
   ImageExtraction,
@@ -25,7 +29,9 @@ import {
 } from "../x/snapshots.ts";
 import {
   exists,
+  hydrateCachedRelevance,
   modelDirectory,
+  parseArgument,
   requiredEnvironmentVariable,
   runMain,
   saveJson,
@@ -289,6 +295,7 @@ async function prepareSynthesis(
   post: SavedPost,
   apiKey: string | undefined,
   synthesisModel: string,
+  refresh: boolean,
 ): Promise<void> {
   if (!apiKey) return;
   const cachePath = resolve(
@@ -298,8 +305,12 @@ async function prepareSynthesis(
     modelDirectory(synthesisModel),
     `${post.id}.json`,
   );
-  const cached = await cachedJson<{ enrichment: PostEnrichment }>(cachePath);
-  if (cached) {
+  const sourceHash = synthesisFingerprint(post);
+  const cached = await cachedJson<{
+    enrichment: PostEnrichment;
+    sourceHash?: string;
+  }>(cachePath);
+  if (!refresh && cached?.sourceHash === sourceHash) {
     post.enrichment = cached.enrichment;
     return;
   }
@@ -308,10 +319,14 @@ async function prepareSynthesis(
     post.enrichment = result.enrichment;
     await saveJson(cachePath, {
       postId: post.id,
+      sourceHash,
       createdAt: new Date().toISOString(),
       ...result,
     });
   } catch (error) {
+    // Keep the last good synthesis rather than downgrading the note to pending
+    // because one call failed.
+    if (cached) post.enrichment = cached.enrichment;
     console.warn(
       `Synthesis failed for ${post.id}: ${error instanceof Error ? error.message : error}`,
     );
@@ -321,11 +336,18 @@ async function prepareSynthesis(
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const enrich = arguments_.includes("--enrich");
+  const refreshSynthesis = arguments_.includes("--refresh-synthesis");
+  const postId = parseArgument(arguments_, "post");
   const requestedSnapshot = arguments_.find((argument) => !argument.startsWith("--"));
   const snapshots = requestedSnapshot
     ? [resolve(requestedSnapshot)]
     : await latestSnapshots();
-  const posts = await loadSnapshots(snapshots);
+  const allPosts = await loadSnapshots(snapshots);
+  const verificationModel =
+    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5-mini";
+  await hydrateCachedRelevance(allPosts, verificationModel);
+  const posts = postId ? allPosts.filter(({ id }) => id === postId) : allPosts;
+  if (postId && !posts.length) throw new Error(`Saved post ${postId} was not found`);
   const apiKey = enrich ? requiredEnvironmentVariable("OPENROUTER_KEY") : undefined;
   const visionModel =
     process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
@@ -344,7 +366,7 @@ async function main(): Promise<void> {
   for (const post of posts) {
     await prepareMedia(post, apiKey, visionModel);
     await prepareTranslation(post, apiKey, translationModel);
-    await prepareSynthesis(post, apiKey, synthesisModel);
+    await prepareSynthesis(post, apiKey, synthesisModel, refreshSynthesis);
     const note = renderObsidianNote(post, conceptVocabulary);
     await writeFile(resolve(previewRoot, note.filename), note.markdown, "utf8");
     rendered.push(note);
@@ -352,19 +374,21 @@ async function main(): Promise<void> {
 
   const normalizedPath = resolve(
     "data/normalized",
-    `x-${basename(snapshots[0]!).match(snapshotPattern)?.[2] ?? Date.now()}.normalized.json`,
+    `x-${basename(snapshots[0]!).match(snapshotPattern)?.[2] ?? Date.now()}${postId ? `-${postId}` : ""}.normalized.json`,
   );
   await saveJson(normalizedPath, posts);
-  await writeFile(
-    resolve(previewRoot, "_Index.md"),
-    [
-      "# X likes preview",
-      "",
-      ...rendered.map(({ filename, title }) => `- [[${filename.slice(0, -3)}|${title}]]`),
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  if (!postId) {
+    await writeFile(
+      resolve(previewRoot, "_Index.md"),
+      [
+        "# X likes preview",
+        "",
+        ...rendered.map(({ filename, title }) => `- [[${filename.slice(0, -3)}|${title}]]`),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
 
   console.log(
     `Generated ${posts.length} preview notes in ${previewRoot}${enrich ? " with configured enrichment" : ""}`,

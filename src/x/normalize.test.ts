@@ -7,9 +7,34 @@ import { synthesisSource } from "../llm/enrich-post.ts";
 import { normalizeTopicCase, renderObsidianNote } from "../obsidian/render.ts";
 import {
   mergeSavedPosts,
+  normalizeContextResponse,
   normalizeLikesResponse,
   normalizeThreadResponse,
 } from "./normalize.ts";
+
+test("normalizes an exact provided context post with expanded links", () => {
+  const context = normalizeContextResponse({
+    data: {
+      id: "2",
+      author_id: "20",
+      text: "resource https://t.co/example",
+      entities: {
+        urls: [{ expanded_url: "https://example.com/resource", title: "Resource" }],
+      },
+    },
+    includes: { users: [{ id: "20", username: "author" }] },
+  });
+  assert.equal(context.type, "provided_context");
+  assert.equal(context.url, "https://x.com/author/status/2");
+  assert.deepEqual(context.links, [
+    {
+      kind: "link",
+      source: "post",
+      url: "https://example.com/resource",
+      title: "Resource",
+    },
+  ]);
+});
 
 test("normalizes mixed X content into replayable fragments and renders it", () => {
   const raw = {
@@ -265,8 +290,68 @@ test("keeps a multi-line article title on one line in the note and filename", ()
 
   const note = renderObsidianNote(post);
   assert.equal(note.title, "Line one line two");
-  assert.equal(note.filename, "Line one line two -- 10.md");
+  assert.equal(note.filename, "Line_one_line_two--10.md");
+  assert.doesNotMatch(note.filename, /\s/);
   assert.match(note.markdown, /\n# Line one line two\n/);
+});
+
+test("removes apostrophes from link-safe note filenames", () => {
+  const [post] = normalizeLikesResponse(
+    {
+      data: [
+        {
+          id: "12",
+          text: "Author's `guide` (quick)",
+          author_id: "20",
+        },
+      ],
+      includes: { users: [{ id: "20", username: "author" }] },
+    },
+    "data/raw/fixture.json",
+    "2026-01-02T00:00:00Z",
+  );
+  assert(post);
+
+  const note = renderObsidianNote(post);
+  assert.equal(note.title, "Author's `guide` (quick)");
+  assert.equal(note.filename, "Authors_guide_quick--12.md");
+  assert.doesNotMatch(note.filename, /[^\p{L}\p{N}_.-]/u);
+});
+
+test("renders a captured external page as source material", () => {
+  const note = renderObsidianNote({
+    id: "11",
+    url: "https://x.com/author/status/11",
+    capturedAt: "2026-01-02T00:00:00Z",
+    author: { id: "20", username: "author" },
+    fragments: [
+      { kind: "text", source: "post", text: "Read this" },
+      {
+        kind: "web_page",
+        sourceUrl: "https://example.com/article",
+        url: "https://example.com/article",
+        contentType: "text/html",
+        title: "External article",
+        text: "Full captured article text.",
+        capturedAt: "2026-01-02T00:00:00Z",
+        rawPath: "data/raw/web/11/page.html",
+      },
+    ],
+    relationships: [],
+    relevance: {
+      verdict: "partly_current",
+      reason: "The core idea remains useful with one qualification.",
+      currentGuidance: "Apply the qualification.",
+      evidenceUrls: ["https://example.com/evidence"],
+    },
+    captureMethods: ["like"],
+    rawSources: [],
+  });
+  assert.equal(note.title, "External article");
+  assert.match(note.markdown, /## Linked page: External article/);
+  assert.match(note.markdown, /Full captured article text\./);
+  assert.match(note.markdown, /## Freshness/);
+  assert.match(note.markdown, /relevance_status: "partly_current"/);
 });
 
 test("keeps only the focal author's reachable thread continuation", () => {
@@ -278,11 +363,11 @@ test("keeps only the focal author's reachable thread continuation", () => {
     {
       data: [
         {
-          id: "2",
+          id: "3",
           author_id: "20",
-          text: "second",
+          text: "third",
           created_at: "2022-01-01T00:02:00Z",
-          referenced_posts: [{ id: "1", type: "replied_to" }],
+          referenced_posts: [{ id: "2", type: "replied_to" }],
         },
         {
           id: "4",
@@ -292,11 +377,14 @@ test("keeps only the focal author's reachable thread continuation", () => {
           referenced_posts: [{ id: "99", type: "replied_to" }],
         },
         {
-          id: "3",
+          id: "2",
           author_id: "20",
-          text: "third",
-          created_at: "2022-01-01T00:03:00Z",
-          referenced_posts: [{ id: "2", type: "replied_to" }],
+          text: "second",
+          entities: {
+            urls: [{ expanded_url: "https://example.com/thread-resource" }],
+          },
+          created_at: "2022-01-01T00:02:00Z",
+          referenced_posts: [{ id: "1", type: "replied_to" }],
         },
         {
           id: "5",
@@ -311,4 +399,7 @@ test("keeps only the focal author's reachable thread continuation", () => {
     focal,
   );
   assert.deepEqual(relationships.map(({ postId }) => postId), ["2", "3"]);
+  assert.deepEqual(relationships[0]?.links, [
+    { kind: "link", source: "post", url: "https://example.com/thread-resource" },
+  ]);
 });

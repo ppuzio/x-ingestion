@@ -33,6 +33,15 @@ function authorFrom(user: JsonObject | undefined, id: string): SavedAuthor {
   };
 }
 
+function usersById(includes: unknown): Map<string, JsonObject> {
+  return new Map(
+    objects(object(includes)?.users).flatMap((user) => {
+      const id = string(user.id);
+      return id ? [[id, user] as const] : [];
+    }),
+  );
+}
+
 function isExternalUrl(url: string): boolean {
   try {
     const hostname = new URL(url).hostname.replace(/^www\./, "");
@@ -147,12 +156,7 @@ export function normalizeLikesResponse(
       return id ? [[id, post] as const] : [];
     })
   );
-  const users = new Map(
-    objects(includes?.users).flatMap((user) => {
-      const id = string(user.id);
-      return id ? [[id, user] as const] : [];
-    })
-  );
+  const users = usersById(includes);
   const media = new Map(
     objects(includes?.media).flatMap((item) => {
       const key = string(item.media_key);
@@ -224,12 +228,14 @@ export function normalizeLikesResponse(
       const referencedText =
         string(object(resolved?.note_post)?.text) ?? string(resolved?.text);
       const referencedLanguage = string(resolved?.lang);
+      const referencedLinks = linksFromEntities(resolved?.entities, "post");
       return [
         {
           type,
           postId,
           url: `https://x.com/i/web/status/${postId}`,
           ...(referencedText ? { text: referencedText } : {}),
+          ...(referencedLinks.length ? { links: referencedLinks } : {}),
           ...(referencedLanguage ? { language: referencedLanguage } : {}),
           ...(referencedAuthor ? { author: referencedAuthor } : {}),
         },
@@ -255,6 +261,33 @@ export function normalizeLikesResponse(
   });
 }
 
+/** Builds a relationship from one raw X post; the caller supplies the edge type. */
+function relationshipFrom(
+  type: string,
+  id: string,
+  authorId: string,
+  post: JsonObject,
+  users: Map<string, JsonObject>,
+): PostRelationship {
+  const author = authorFrom(users.get(authorId), authorId);
+  const text = string(object(post.note_post)?.text) ?? string(post.text);
+  const links = linksFromEntities(post.entities, "post");
+  const language = string(post.lang);
+  const createdAt = string(post.created_at);
+  return {
+    type,
+    postId: id,
+    url: author.username
+      ? `https://x.com/${author.username}/status/${id}`
+      : `https://x.com/i/web/status/${id}`,
+    ...(text ? { text } : {}),
+    ...(links.length ? { links } : {}),
+    ...(language ? { language } : {}),
+    ...(createdAt ? { createdAt } : {}),
+    author,
+  };
+}
+
 export function normalizeThreadResponse(
   input: unknown,
   focalPost: SavedPost,
@@ -263,16 +296,13 @@ export function normalizeThreadResponse(
   if (!response || (response.data !== undefined && !Array.isArray(response.data))) {
     throw new Error("Raw X thread response data must be an array when present");
   }
-  const users = new Map(
-    objects(object(response.includes)?.users).flatMap((user) => {
-      const id = string(user.id);
-      return id ? [[id, user] as const] : [];
-    }),
-  );
+  const users = usersById(response.includes);
   const candidates = objects(response.data)
     .filter((post) => string(post.author_id) === focalPost.author.id)
-    .sort((a, b) =>
-      (string(a.created_at) ?? "").localeCompare(string(b.created_at) ?? ""),
+    .sort(
+      (a, b) =>
+        (string(a.created_at) ?? "").localeCompare(string(b.created_at) ?? "") ||
+        (string(a.id) ?? "").localeCompare(string(b.id) ?? ""),
     );
   const reachable = new Set([focalPost.id]);
   const continuations: PostRelationship[] = [];
@@ -285,25 +315,30 @@ export function normalizeThreadResponse(
       continue;
     }
     const authorId = string(post.author_id)!;
-    const author = authorFrom(users.get(authorId), authorId);
-    const text = string(object(post.note_post)?.text) ?? string(post.text);
-    const language = string(post.lang);
-    const createdAt = string(post.created_at);
-    continuations.push({
-      type: "thread_continuation",
-      postId: id,
-      url: author.username
-        ? `https://x.com/${author.username}/status/${id}`
-        : `https://x.com/i/web/status/${id}`,
-      ...(text ? { text } : {}),
-      ...(language ? { language } : {}),
-      ...(createdAt ? { createdAt } : {}),
-      author,
-    });
+    continuations.push(
+      relationshipFrom("thread_continuation", id, authorId, post, users),
+    );
     reachable.add(id);
     if (continuations.length === 25) break;
   }
   return continuations;
+}
+
+export function normalizeContextResponse(input: unknown): PostRelationship {
+  const response = object(input);
+  const post = object(response?.data);
+  const id = string(post?.id);
+  const authorId = string(post?.author_id);
+  if (!post || !id || !authorId) {
+    throw new Error("Raw X context response must contain one post and author ID");
+  }
+  return relationshipFrom(
+    "provided_context",
+    id,
+    authorId,
+    post,
+    usersById(response?.includes),
+  );
 }
 
 export function mergeSavedPosts(posts: SavedPost[]): SavedPost[] {

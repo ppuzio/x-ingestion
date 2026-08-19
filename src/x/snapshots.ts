@@ -2,24 +2,30 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 import type { CaptureMethod, SavedPost } from "../model.ts";
+import { webPageFragment } from "../web/page.ts";
 import {
   mergeSavedPosts,
+  normalizeContextResponse,
   normalizeLikesResponse,
   normalizeThreadResponse,
 } from "./normalize.ts";
 
 export const snapshotPattern = /^(likes|bookmarks)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:-page-\d{3})?\.json$/;
 
-export async function latestSnapshots(): Promise<string[]> {
-  const directory = resolve("data/raw");
+export async function latestSnapshots(directory = resolve("data/raw")): Promise<string[]> {
   const snapshots = (await readdir(directory)).flatMap((name) => {
     const match = name.match(snapshotPattern);
     return match ? [{ name, collection: match[1]!, timestamp: match[2]! }] : [];
   });
-  const latestTimestamp = snapshots.map(({ timestamp }) => timestamp).sort().at(-1);
-  if (!latestTimestamp) throw new Error("No raw X snapshots found in data/raw");
+  const latestByCollection = new Map<string, string>();
+  for (const { collection, timestamp } of snapshots) {
+    if (timestamp > (latestByCollection.get(collection) ?? "")) {
+      latestByCollection.set(collection, timestamp);
+    }
+  }
+  if (!latestByCollection.size) throw new Error("No raw X snapshots found in data/raw");
   return snapshots
-    .filter(({ timestamp }) => timestamp === latestTimestamp)
+    .filter(({ collection, timestamp }) => timestamp === latestByCollection.get(collection))
     .sort(
       (a, b) =>
         Number(b.collection === "likes") - Number(a.collection === "likes") ||
@@ -41,6 +47,22 @@ function capturedAt(path: string): string {
 
 function captureMethod(path: string): CaptureMethod {
   return basename(path).startsWith("bookmarks-") ? "bookmark" : "like";
+}
+
+/**
+ * Keeps the last filename per key. Capture filenames end in a sortable
+ * timestamp, so sorting by name puts the newest capture for a key last.
+ */
+function latestByKey(
+  names: string[],
+  keyOf: (name: string) => string | undefined,
+): string[] {
+  const latest = new Map<string, string>();
+  for (const name of [...names].sort()) {
+    const key = keyOf(name);
+    if (key) latest.set(key, name);
+  }
+  return [...latest.values()];
 }
 
 export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
@@ -66,6 +88,33 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
     if (!latest) continue;
     const response = JSON.parse(await readFile(resolve(directory, latest), "utf8"));
     post.relationships.push(...normalizeThreadResponse(response, post));
+  }
+  for (const post of posts) {
+    const prefix = `context-${post.id}-`;
+    const contextCaptures = latestByKey(
+      names.filter((candidate) => candidate.startsWith(prefix)),
+      (name) => name.slice(prefix.length).split("-", 1)[0],
+    );
+    for (const name of contextCaptures) {
+      const response = JSON.parse(await readFile(resolve(directory, name), "utf8"));
+      post.relationships.push(normalizeContextResponse(response));
+    }
+  }
+  for (const post of posts) {
+    const webRoot = resolve("data/raw/web", post.id);
+    let captures: string[];
+    try {
+      captures = await readdir(webRoot);
+    } catch {
+      continue;
+    }
+    for (const name of latestByKey(
+      captures.filter((candidate) => candidate.endsWith(".json")),
+      (candidate) => candidate.match(/^page-([a-f0-9]{12})-/)?.[1],
+    )) {
+      const capture = JSON.parse(await readFile(resolve(webRoot, name), "utf8"));
+      post.fragments.push(webPageFragment(capture));
+    }
   }
   return posts;
 }

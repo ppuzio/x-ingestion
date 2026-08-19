@@ -8,8 +8,25 @@ import {
   protectBroadReplacement,
   protectIncompleteThread,
   protectVerification,
+  requestedVerification,
   requireVerificationEvidence,
 } from "./verify-relevance.ts";
+
+test("allows an explicit verification request for a durable triage result", () => {
+  const assessment = requestedVerification(
+    {
+      postId: "1",
+      status: "durable",
+      reason: "A reusable technique.",
+      needsWebCheck: false,
+      webQuery: null,
+    },
+    "project current status 2026",
+  );
+  assert.equal(assessment.status, "time_sensitive");
+  assert.equal(assessment.needsWebCheck, true);
+  assert.equal(assessment.webQuery, "project current status 2026");
+});
 
 test("validates verification and requires citations for factual verdicts", () => {
   const verification = parseRelevanceVerification(

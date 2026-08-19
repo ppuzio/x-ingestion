@@ -4,7 +4,7 @@ import { collapseWhitespace, stripUrls } from "../text.ts";
 import { synthesisSource } from "./enrich-post.ts";
 import { requestStructuredJson } from "./openrouter.ts";
 
-export const RELEVANCE_TRIAGE_VERSION = "v8";
+export const RELEVANCE_TRIAGE_VERSION = "v9";
 export type RelevanceStatus =
   | "durable"
   | "time_sensitive"
@@ -201,6 +201,7 @@ export async function triageRelevance(
           "non_knowledge: only pure banter, reaction, or social chatter with no informative claim, explanation, data, technique, or linked resource. Never use this merely because something is niche, old, specific, outside software, or not immediately actionable.",
           "Finance, history, science, art, and every other domain may be valuable. Specific and niche technical facts are knowledge; their usefulness is the user's decision.",
           "unclear: important context is missing, visual-only, linked but unavailable, or too ambiguous to judge. Prefer unclear over non_knowledge when useful content may be in missing media or a link.",
+          "Use unclear only when missing context prevents evaluating any substantive content. If the focal post itself states a concrete technique, fact, opinion, or implementation detail, classify that captured content even when another link, image, or reply could add more.",
           "Do not call something obsolete without evidence. Mark every time_sensitive item needsWebCheck=true and provide one precise search query; all other items must use false and null.",
           `Web queries must target current evidence and use ${currentDate.slice(0, 4)} rather than an older default year unless the query is explicitly historical.`,
           "Return exactly one assessment for each supplied post ID.",
@@ -208,7 +209,7 @@ export async function triageRelevance(
             posts.map((post) => ({
               postId: post.id,
               createdAt: post.createdAt ?? null,
-              source: relevanceSource(post).slice(0, 6_000),
+              source: relevanceSource(post).slice(0, 20_000),
             })),
           ),
         ].join("\n\n"),

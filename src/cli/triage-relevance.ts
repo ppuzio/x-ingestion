@@ -12,7 +12,9 @@ import type { SavedPost } from "../model.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import {
   loadCachedAssessment,
+  hydrateCachedSourceContext,
   modelDirectory,
+  parseArguments,
   parseLimitArgument,
   reportTitle,
   requiredEnvironmentVariable,
@@ -70,9 +72,17 @@ function report(
 
 async function main(): Promise<void> {
   const limit = parseLimitArgument(process.argv);
+  const postIds = parseArguments(process.argv, "post");
+  const refresh = process.argv.includes("--refresh");
 
   const allPosts = oldestFirst(await loadSnapshots(await latestSnapshots()));
-  const posts = allPosts.slice(0, limit);
+  await hydrateCachedSourceContext(allPosts);
+  const posts = postIds.length
+    ? allPosts.filter(({ id }) => postIds.includes(id))
+    : allPosts.slice(0, limit);
+  if (postIds.length && posts.length !== new Set(postIds).size) {
+    throw new Error("One or more requested saved posts were not found");
+  }
   const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const model =
     process.env.OPENROUTER_TRIAGE_MODEL?.trim() ||
@@ -87,6 +97,10 @@ async function main(): Promise<void> {
   const uncached: SavedPost[] = [];
   const currentDate = new Date().toISOString().slice(0, 10);
   for (const post of posts) {
+    if (refresh) {
+      uncached.push(post);
+      continue;
+    }
     const cached = await loadCachedAssessment(cacheRoot, post, currentDate);
     if (!cached) {
       uncached.push(post);

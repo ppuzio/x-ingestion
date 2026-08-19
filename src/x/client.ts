@@ -104,6 +104,7 @@ export interface FetchConversationOptions {
   bearerToken: string;
   conversationId: string;
   username: string;
+  createdAt: string;
   maxResults?: number;
 }
 
@@ -185,7 +186,8 @@ function setPostParameters(url: URL): void {
 export function buildConversationSearchUrl(
   conversationId: string,
   username: string,
-  maxResults = 100,
+  createdAt: string,
+  maxResults = 500,
 ): URL {
   if (!/^\d{1,19}$/.test(conversationId)) {
     throw new Error("X conversation ID must contain 1-19 digits");
@@ -193,12 +195,30 @@ export function buildConversationSearchUrl(
   if (!/^[A-Za-z0-9_]{1,15}$/.test(username)) {
     throw new Error("X username must contain 1-15 letters, digits, or underscores");
   }
+  const start = new Date(createdAt);
+  if (Number.isNaN(start.valueOf())) throw new Error("X post creation time is invalid");
   if (!Number.isInteger(maxResults) || maxResults < 10 || maxResults > 500) {
     throw new Error("maxResults must be an integer from 10 to 500");
   }
   const url = new URL(`${API_BASE_URL}/tweets/search/all`);
-  url.searchParams.set("query", `conversation_id:${conversationId} from:${username}`);
+  // ponytail: self-replies and 24 hours cover the reviewed threads without
+  // billing a week of unrelated replies; widen only for a known longer thread.
+  url.searchParams.set("query", `from:${username} to:${username}`);
+  url.searchParams.set("start_time", new Date(start.valueOf() - 1_000).toISOString());
+  url.searchParams.set(
+    "end_time",
+    new Date(start.valueOf() + 24 * 60 * 60 * 1_000).toISOString(),
+  );
   url.searchParams.set("max_results", String(maxResults));
+  setPostParameters(url);
+  return url;
+}
+
+export function buildPostUrl(postId: string): URL {
+  if (!/^\d{1,19}$/.test(postId)) {
+    throw new Error("X post ID must contain 1-19 digits");
+  }
+  const url = new URL(`${API_BASE_URL}/tweets/${postId}`);
   setPostParameters(url);
   return url;
 }
@@ -244,10 +264,18 @@ export async function fetchConversationRaw({
   bearerToken,
   conversationId,
   username,
-  maxResults = 100,
+  createdAt,
+  maxResults = 500,
 }: FetchConversationOptions): Promise<string> {
   return fetchRaw(
-    buildConversationSearchUrl(conversationId, username, maxResults),
+    buildConversationSearchUrl(conversationId, username, createdAt, maxResults),
     bearerToken,
   );
+}
+
+export async function fetchPostRaw(
+  bearerToken: string,
+  postId: string,
+): Promise<string> {
+  return fetchRaw(buildPostUrl(postId), bearerToken);
 }

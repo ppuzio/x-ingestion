@@ -14,6 +14,7 @@ import {
   finalRelevanceStatus,
   parseRelevanceVerification,
   protectVerification,
+  requestedVerification,
   researchRelevance,
   requireVerificationEvidence,
   type RelevanceVerification,
@@ -23,9 +24,12 @@ import {
 import type { SavedPost } from "../model.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import {
+  datedDirectories,
   exists,
+  hydrateCachedSourceContext,
   loadCachedAssessment,
   modelDirectory,
+  parseArgument,
   parseLimitArgument,
   reportTitle,
   requiredEnvironmentVariable,
@@ -45,6 +49,17 @@ function cachedCitations(value: unknown): UrlCitation[] {
       ...(typeof content === "string" && content.trim() ? { content } : {}),
     }];
   });
+}
+
+async function latestDatedCachePath(
+  versionRoot: string,
+  postId: string,
+): Promise<string | undefined> {
+  for (const date of await datedDirectories(versionRoot)) {
+    const path = resolve(versionRoot, date, `${postId}.json`);
+    if (await exists(path)) return path;
+  }
+  return undefined;
 }
 
 function report(
@@ -176,12 +191,13 @@ function auditReport(
 }
 
 async function main(): Promise<void> {
-  const postArgument = process.argv.find((argument) => argument.startsWith("--post="));
-  const postId = postArgument?.slice("--post=".length);
+  const postId = parseArgument(process.argv, "post");
   const refreshEvidence = process.argv.includes("--refresh-evidence");
+  const reportOnly = process.argv.includes("--report-only");
   const limit = parseLimitArgument(process.argv);
 
   const posts = oldestFirst(await loadSnapshots(await latestSnapshots()));
+  await hydrateCachedSourceContext(posts);
   const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const triageModel =
     process.env.OPENROUTER_TRIAGE_MODEL?.trim() ||
@@ -205,25 +221,33 @@ async function main(): Promise<void> {
   const eligible = triaged.filter(
     ({ assessment }) => assessment.status === "time_sensitive",
   );
-  if (!eligible.length) {
+  if (!eligible.length && !postId && !reportOnly) {
     throw new Error("No time-sensitive triage results found; run npm run triage:relevance first");
   }
   const selected = postId
-    ? eligible.filter(({ post }) => post.id === postId)
+    ? triaged.filter(({ post }) => post.id === postId)
+    : reportOnly
+      ? triaged.slice(0, limit)
     : eligible.slice(0, limit);
-  if (!selected.length) throw new Error(`No eligible triage result found for ${postId}`);
+  if (!selected.length) {
+    throw new Error(
+      postId
+        ? `No eligible triage result found for ${postId}`
+        : "No triage results found; run npm run triage:relevance first",
+    );
+  }
 
-  const evidenceRoot = resolve(
+  const evidenceVersionRoot = resolve(
     "data/enrichment/relevance-evidence",
     RELEVANCE_EVIDENCE_VERSION,
-    date,
   );
-  const cacheRoot = resolve(
+  const evidenceRoot = resolve(evidenceVersionRoot, date);
+  const cacheVersionRoot = resolve(
     "data/enrichment/relevance-verification",
     RELEVANCE_VERIFICATION_VERSION,
     modelDirectory(model),
-    date,
   );
+  const cacheRoot = resolve(cacheVersionRoot, date);
   const rows = [] as Array<{
     post: SavedPost;
     verification: RelevanceVerification;
@@ -231,14 +255,23 @@ async function main(): Promise<void> {
   }>;
   let created = 0;
   let searched = 0;
-  for (const { post, assessment } of selected) {
+  for (const { post, assessment: triageAssessment } of selected) {
+    const assessment = requestedVerification(
+      triageAssessment,
+      `${reportTitle(post)} current status ${date.slice(0, 4)}`,
+    );
     const evidencePath = resolve(evidenceRoot, `${post.id}.json`);
     let citations: UrlCitation[] = [];
-    if (!refreshEvidence && await exists(evidencePath)) {
-      const cached = JSON.parse(await readFile(evidencePath, "utf8")) as {
+    const cachedEvidencePath = !refreshEvidence
+      ? await latestDatedCachePath(evidenceVersionRoot, post.id)
+      : undefined;
+    if (cachedEvidencePath) {
+      const cached = JSON.parse(await readFile(cachedEvidencePath, "utf8")) as {
         citations?: unknown;
       };
       citations = cachedCitations(cached.citations);
+    } else if (reportOnly) {
+      continue;
     } else {
       const evidence = await researchRelevance(
         apiKey,
@@ -262,8 +295,11 @@ async function main(): Promise<void> {
     }
 
     const path = resolve(cacheRoot, `${post.id}.json`);
-    if (!refreshEvidence && await exists(path)) {
-      const cached = JSON.parse(await readFile(path, "utf8")) as {
+    const cachedVerificationPath = !refreshEvidence
+      ? await latestDatedCachePath(cacheVersionRoot, post.id)
+      : undefined;
+    if (cachedVerificationPath) {
+      const cached = JSON.parse(await readFile(cachedVerificationPath, "utf8")) as {
         verification?: unknown;
       };
       const verification = protectVerification(
@@ -275,6 +311,7 @@ async function main(): Promise<void> {
       rows.push({ post, verification, citations });
       continue;
     }
+    if (reportOnly) continue;
     let result: Awaited<ReturnType<typeof classifyRelevance>>;
     try {
       result = await classifyRelevance(apiKey, model, post, citations, date);

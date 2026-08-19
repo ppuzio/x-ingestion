@@ -35,6 +35,20 @@ export type FinalRelevanceStatus =
   | "needs_context"
   | "needs_verification";
 
+export function requestedVerification(
+  assessment: RelevanceAssessment,
+  query: string,
+): RelevanceAssessment {
+  return assessment.status === "time_sensitive"
+    ? assessment
+    : {
+        ...assessment,
+        status: "time_sensitive",
+        needsWebCheck: true,
+        webQuery: query,
+      };
+}
+
 export function finalRelevanceStatus(
   assessment: RelevanceAssessment,
   verification?: RelevanceVerification,
