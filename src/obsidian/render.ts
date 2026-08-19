@@ -278,6 +278,15 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
         "",
         `[Open referenced post](${relationship.url})`,
         ...(relationship.text ? ["", relationship.text] : []),
+        ...(relationship.links?.length
+          ? [
+              "",
+              ...relationship.links.map(
+                (link) =>
+                  `- [${(link.title ?? link.url).replaceAll("]", "\\]")}](${link.url})`,
+              ),
+            ]
+          : []),
       );
     }
   }

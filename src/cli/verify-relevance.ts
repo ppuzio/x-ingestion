@@ -14,6 +14,7 @@ import {
   finalRelevanceStatus,
   parseRelevanceVerification,
   protectVerification,
+  requestedVerification,
   researchRelevance,
   requireVerificationEvidence,
   type RelevanceVerification,
@@ -229,11 +230,13 @@ async function main(): Promise<void> {
   const eligible = triaged.filter(
     ({ assessment }) => assessment.status === "time_sensitive",
   );
-  if (!eligible.length) {
+  if (!eligible.length && !postId && !reportOnly) {
     throw new Error("No time-sensitive triage results found; run npm run triage:relevance first");
   }
   const selected = postId
-    ? eligible.filter(({ post }) => post.id === postId)
+    ? triaged.filter(({ post }) => post.id === postId)
+    : reportOnly
+      ? triaged.slice(0, limit)
     : eligible.slice(0, limit);
   if (!selected.length) throw new Error(`No eligible triage result found for ${postId}`);
 
@@ -255,7 +258,11 @@ async function main(): Promise<void> {
   }>;
   let created = 0;
   let searched = 0;
-  for (const { post, assessment } of selected) {
+  for (const { post, assessment: triageAssessment } of selected) {
+    const assessment = requestedVerification(
+      triageAssessment,
+      `${reportTitle(post)} current status ${date.slice(0, 4)}`,
+    );
     const evidencePath = resolve(evidenceRoot, `${post.id}.json`);
     let citations: UrlCitation[] = [];
     const cachedEvidencePath = !refreshEvidence

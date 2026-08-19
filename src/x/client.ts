@@ -201,15 +201,24 @@ export function buildConversationSearchUrl(
     throw new Error("maxResults must be an integer from 10 to 500");
   }
   const url = new URL(`${API_BASE_URL}/tweets/search/all`);
-  // ponytail: seven days and 500 author posts bound cost; paginate only if a
-  // reviewed thread proves this misses continuations from an unusually active author.
-  url.searchParams.set("query", `from:${username}`);
+  // ponytail: self-replies and 24 hours cover the reviewed threads without
+  // billing a week of unrelated replies; widen only for a known longer thread.
+  url.searchParams.set("query", `from:${username} to:${username}`);
   url.searchParams.set("start_time", new Date(start.valueOf() - 1_000).toISOString());
   url.searchParams.set(
     "end_time",
-    new Date(start.valueOf() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
+    new Date(start.valueOf() + 24 * 60 * 60 * 1_000).toISOString(),
   );
   url.searchParams.set("max_results", String(maxResults));
+  setPostParameters(url);
+  return url;
+}
+
+export function buildPostUrl(postId: string): URL {
+  if (!/^\d{1,19}$/.test(postId)) {
+    throw new Error("X post ID must contain 1-19 digits");
+  }
+  const url = new URL(`${API_BASE_URL}/tweets/${postId}`);
   setPostParameters(url);
   return url;
 }
@@ -262,4 +271,11 @@ export async function fetchConversationRaw({
     buildConversationSearchUrl(conversationId, username, createdAt, maxResults),
     bearerToken,
   );
+}
+
+export async function fetchPostRaw(
+  bearerToken: string,
+  postId: string,
+): Promise<string> {
+  return fetchRaw(buildPostUrl(postId), bearerToken);
 }

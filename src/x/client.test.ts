@@ -3,9 +3,17 @@ import test from "node:test";
 
 import {
   buildConversationSearchUrl,
+  buildPostUrl,
   fetchUserPostsRaw,
   refreshXUserToken,
 } from "./client.ts";
+
+test("builds an exact context-post lookup with the captured fields", () => {
+  const url = buildPostUrl("1946464726109782340");
+  assert.equal(url.pathname, "/2/tweets/1946464726109782340");
+  assert.match(url.searchParams.get("post.fields") ?? "", /entities/);
+  assert.match(url.searchParams.get("expansions") ?? "", /referenced_posts/);
+});
 
 test("fetches the requested fields and returns the response body unchanged", async () => {
   const originalFetch = globalThis.fetch;
@@ -38,16 +46,16 @@ test("fetches the requested fields and returns the response body unchanged", asy
   }
 });
 
-test("restricts full-archive thread search to one conversation and author", () => {
+test("restricts full-archive thread recovery to an author's self-replies", () => {
   const url = buildConversationSearchUrl(
     "1496273922714902528",
     "SeaRyanC",
     "2022-02-23T00:01:17.000Z",
   );
   assert.equal(url.pathname, "/2/tweets/search/all");
-  assert.equal(url.searchParams.get("query"), "from:SeaRyanC");
+  assert.equal(url.searchParams.get("query"), "from:SeaRyanC to:SeaRyanC");
   assert.equal(url.searchParams.get("start_time"), "2022-02-23T00:01:16.000Z");
-  assert.equal(url.searchParams.get("end_time"), "2022-03-02T00:01:17.000Z");
+  assert.equal(url.searchParams.get("end_time"), "2022-02-24T00:01:17.000Z");
   assert.equal(url.searchParams.get("max_results"), "500");
 });
 

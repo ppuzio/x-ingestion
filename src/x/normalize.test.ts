@@ -7,9 +7,34 @@ import { synthesisSource } from "../llm/enrich-post.ts";
 import { normalizeTopicCase, renderObsidianNote } from "../obsidian/render.ts";
 import {
   mergeSavedPosts,
+  normalizeContextResponse,
   normalizeLikesResponse,
   normalizeThreadResponse,
 } from "./normalize.ts";
+
+test("normalizes an exact provided context post with expanded links", () => {
+  const context = normalizeContextResponse({
+    data: {
+      id: "2",
+      author_id: "20",
+      text: "resource https://t.co/example",
+      entities: {
+        urls: [{ expanded_url: "https://example.com/resource", title: "Resource" }],
+      },
+    },
+    includes: { users: [{ id: "20", username: "author" }] },
+  });
+  assert.equal(context.type, "provided_context");
+  assert.equal(context.url, "https://x.com/author/status/2");
+  assert.deepEqual(context.links, [
+    {
+      kind: "link",
+      source: "post",
+      url: "https://example.com/resource",
+      title: "Resource",
+    },
+  ]);
+});
 
 test("normalizes mixed X content into replayable fragments and renders it", () => {
   const raw = {
@@ -295,6 +320,9 @@ test("keeps only the focal author's reachable thread continuation", () => {
           id: "2",
           author_id: "20",
           text: "second",
+          entities: {
+            urls: [{ expanded_url: "https://example.com/thread-resource" }],
+          },
           created_at: "2022-01-01T00:02:00Z",
           referenced_posts: [{ id: "1", type: "replied_to" }],
         },
@@ -311,4 +339,7 @@ test("keeps only the focal author's reachable thread continuation", () => {
     focal,
   );
   assert.deepEqual(relationships.map(({ postId }) => postId), ["2", "3"]);
+  assert.deepEqual(relationships[0]?.links, [
+    { kind: "link", source: "post", url: "https://example.com/thread-resource" },
+  ]);
 });

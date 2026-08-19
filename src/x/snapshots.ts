@@ -4,6 +4,7 @@ import { basename, resolve } from "node:path";
 import type { CaptureMethod, SavedPost } from "../model.ts";
 import {
   mergeSavedPosts,
+  normalizeContextResponse,
   normalizeLikesResponse,
   normalizeThreadResponse,
 } from "./normalize.ts";
@@ -66,6 +67,18 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
     if (!latest) continue;
     const response = JSON.parse(await readFile(resolve(directory, latest), "utf8"));
     post.relationships.push(...normalizeThreadResponse(response, post));
+  }
+  for (const post of posts) {
+    const prefix = `context-${post.id}-`;
+    const latestByContext = new Map<string, string>();
+    for (const name of names.filter((candidate) => candidate.startsWith(prefix)).sort()) {
+      const contextId = name.slice(prefix.length).split("-", 1)[0];
+      if (contextId) latestByContext.set(contextId, name);
+    }
+    for (const name of latestByContext.values()) {
+      const response = JSON.parse(await readFile(resolve(directory, name), "utf8"));
+      post.relationships.push(normalizeContextResponse(response));
+    }
   }
   return posts;
 }

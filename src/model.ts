@@ -98,6 +98,7 @@ export interface PostRelationship {
   postId: string;
   url: string;
   text?: string;
+  links?: LinkFragment[];
   language?: string;
   createdAt?: string;
   author?: SavedAuthor;

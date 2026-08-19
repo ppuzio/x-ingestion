@@ -115,12 +115,19 @@ from the focal author:
 npm run fetch:thread -- --post=1496273922714902528
 ```
 
-This calls `GET https://api.x.com/2/tweets/search/all` for at most 500 posts by
-the focal author during the following seven days and requires
+This calls `GET https://api.x.com/2/tweets/search/all` for at most 500 self-replies
+by the focal author during the following 24 hours and requires
 `X_ARCHIVE_BEARER_TOKEN` plus full-archive access. The raw response is saved as
 `data/raw/thread-{post_id}-{timestamp}.json`; normalization retains at most 25
 same-author replies reachable from the saved post and ignores unrelated posts
 and side replies.
+
+When review identifies one exact context post outside that reply chain, attach
+it without crawling the surrounding conversation:
+
+```bash
+npm run fetch:thread -- --post=1946249533543076159 --context=1946464726109782340
+```
 
 See X's official [Get Users Liked Posts reference](https://docs.x.com/x-api/users/get-liked-posts),
 [Get Bookmarks reference](https://docs.x.com/x-api/users/get-bookmarks),
