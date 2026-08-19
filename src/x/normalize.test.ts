@@ -301,7 +301,7 @@ test("removes apostrophes from link-safe note filenames", () => {
       data: [
         {
           id: "12",
-          text: "Author's `guide`",
+          text: "Author's `guide` (quick)",
           author_id: "20",
         },
       ],
@@ -313,9 +313,9 @@ test("removes apostrophes from link-safe note filenames", () => {
   assert(post);
 
   const note = renderObsidianNote(post);
-  assert.equal(note.title, "Author's `guide`");
-  assert.equal(note.filename, "Authors_guide--12.md");
-  assert.doesNotMatch(note.filename, /['’`]/);
+  assert.equal(note.title, "Author's `guide` (quick)");
+  assert.equal(note.filename, "Authors_guide_quick--12.md");
+  assert.doesNotMatch(note.filename, /[^\p{L}\p{N}_.-]/u);
 });
 
 test("renders a captured external page as source material", () => {

@@ -51,8 +51,8 @@ function titleFor(post: SavedPost): string {
 function filenameFor(title: string, id: string): string {
   const filenamePart = (value: string, limit = Number.POSITIVE_INFINITY) => {
     const sanitized = safeName(value)
-      .replaceAll(" ", "_")
-      .replace(/[\u0060\u0027\u2019]/g, "");
+      .replace(/[\u0060\u0027\u2019]/g, "")
+      .replace(/[^\p{L}\p{N}_.-]+/gu, "_");
     return sanitized.slice(0, limit).replace(/_+$/g, "");
   };
   return `${filenamePart(title, 90) || "X_post"}--${filenamePart(id)}.md`;
