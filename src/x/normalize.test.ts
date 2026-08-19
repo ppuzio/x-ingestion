@@ -295,6 +295,29 @@ test("keeps a multi-line article title on one line in the note and filename", ()
   assert.match(note.markdown, /\n# Line one line two\n/);
 });
 
+test("removes apostrophes from link-safe note filenames", () => {
+  const [post] = normalizeLikesResponse(
+    {
+      data: [
+        {
+          id: "12",
+          text: "Author's guide",
+          author_id: "20",
+        },
+      ],
+      includes: { users: [{ id: "20", username: "author" }] },
+    },
+    "data/raw/fixture.json",
+    "2026-01-02T00:00:00Z",
+  );
+  assert(post);
+
+  const note = renderObsidianNote(post);
+  assert.equal(note.title, "Author's guide");
+  assert.equal(note.filename, "Authors_guide--12.md");
+  assert.doesNotMatch(note.filename, /['’]/);
+});
+
 test("renders a captured external page as source material", () => {
   const note = renderObsidianNote({
     id: "11",

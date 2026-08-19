@@ -49,8 +49,13 @@ function titleFor(post: SavedPost): string {
 }
 
 function filenameFor(title: string, id: string): string {
-  const filenamePart = (value: string) => safeName(value).replaceAll(" ", "_");
-  return `${filenamePart(title).slice(0, 90) || "X_post"}--${filenamePart(id)}.md`;
+  const filenamePart = (value: string, limit = Number.POSITIVE_INFINITY) => {
+    const sanitized = safeName(value)
+      .replaceAll(" ", "_")
+      .replace(/[\u0027\u2019]/g, "");
+    return sanitized.slice(0, limit).replace(/_+$/g, "");
+  };
+  return `${filenamePart(title, 90) || "X_post"}--${filenamePart(id)}.md`;
 }
 
 function list(values: string[]): string[] {
