@@ -230,8 +230,9 @@ separate from `current`/`superseded`, and this step also never deletes content.
 
 Post synthesis consumes normalized text plus completed translation and visual
 extractions. It produces cached, runtime-validated JSON for summaries, topics,
-concepts, technologies, people, claims, and relevance. Prompt `v4` excludes
-low-level image-extraction uncertainty from whole-post synthesis. Automatic
+concepts, technologies, people, claims, and relevance. Prompt `v5` keeps X
+link-wrapper commentary out of claims and excludes low-level image-extraction
+uncertainty from whole-post synthesis. Automatic
 follow-up generation is deliberately omitted until a note has a concrete user
 goal; source-level uncertainty and pending-processing flags remain visible.
 Model selection is configurable, and source text is capped at 60,000
