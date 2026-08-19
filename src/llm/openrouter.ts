@@ -140,7 +140,9 @@ export async function extractImage(
         text: [
           "Extract the durable information from this image saved from an X post.",
           "Transcribe visible text verbatim and preserve line breaks. Do not translate it.",
-          "Also explain information communicated by layout, diagrams, UI state, or other visual structure.",
+          "Also explain information communicated by diagrams, labels, layout, UI state, or other visual structure when it carries meaning.",
+          "Key facts must be information-bearing and useful for understanding or reusing the source: code behavior, data, labels, claims, instructions, or meaningful relationships.",
+          "Omit decorative details and generic presentation chrome from keyFacts, including colors, backgrounds, patterns, syntax highlighting, window controls, and ordinary editor or terminal framing unless they communicate something important.",
           "Use an empty verbatimText when there is no readable text. Record uncertainty instead of guessing.",
           ...(context ? [context] : []),
         ].join(" "),
