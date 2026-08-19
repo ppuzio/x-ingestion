@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { object, strings } from "../json.ts";
 import type { PostEnrichment, SavedPost } from "../model.ts";
 import { requestStructuredJson } from "./openrouter.ts";
@@ -5,7 +7,7 @@ import { requestStructuredJson } from "./openrouter.ts";
 export const SYNTHESIS_PROMPT_VERSION = "v5";
 const MAX_SOURCE_CHARACTERS = 60_000;
 
-export function synthesisSource(post: SavedPost): string {
+function synthesisBundle(post: SavedPost): object {
   const fragments = post.fragments.map((fragment) => {
     if (fragment.kind !== "media" || !fragment.extraction) return fragment;
     const { kind, language, verbatimText, visualSummary, keyFacts } =
@@ -15,20 +17,24 @@ export function synthesisSource(post: SavedPost): string {
       extraction: { kind, language, verbatimText, visualSummary, keyFacts },
     };
   });
-  const source = JSON.stringify(
-    {
-      capturePlatform: "X",
-      sourceUrl: post.url,
-      author: post.author,
-      fragments,
-      relationships: post.relationships,
-    },
-    null,
-    2,
-  );
+  return {
+    capturePlatform: "X",
+    sourceUrl: post.url,
+    author: post.author,
+    fragments,
+    relationships: post.relationships,
+  };
+}
+
+export function synthesisSource(post: SavedPost): string {
+  const source = JSON.stringify(synthesisBundle(post), null, 2);
   return source.length <= MAX_SOURCE_CHARACTERS
     ? source
     : `${source.slice(0, MAX_SOURCE_CHARACTERS)}\n[Source truncated at ${MAX_SOURCE_CHARACTERS} characters]`;
+}
+
+export function synthesisFingerprint(post: SavedPost): string {
+  return createHash("sha256").update(JSON.stringify(synthesisBundle(post))).digest("hex");
 }
 
 export async function enrichPost(

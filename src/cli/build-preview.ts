@@ -3,7 +3,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import { enrichPost, SYNTHESIS_PROMPT_VERSION } from "../llm/enrich-post.ts";
+import {
+  enrichPost,
+  synthesisFingerprint,
+  SYNTHESIS_PROMPT_VERSION,
+} from "../llm/enrich-post.ts";
 import { extractImage, translateText } from "../llm/openrouter.ts";
 import type {
   ImageExtraction,
@@ -300,10 +304,11 @@ async function prepareSynthesis(
     modelDirectory(synthesisModel),
     `${post.id}.json`,
   );
+  const sourceHash = synthesisFingerprint(post);
   const cached = refresh
     ? undefined
-    : await cachedJson<{ enrichment: PostEnrichment }>(cachePath);
-  if (cached) {
+    : await cachedJson<{ enrichment: PostEnrichment; sourceHash?: string }>(cachePath);
+  if (cached?.sourceHash === sourceHash) {
     post.enrichment = cached.enrichment;
     return;
   }
@@ -312,6 +317,7 @@ async function prepareSynthesis(
     post.enrichment = result.enrichment;
     await saveJson(cachePath, {
       postId: post.id,
+      sourceHash,
       createdAt: new Date().toISOString(),
       ...result,
     });

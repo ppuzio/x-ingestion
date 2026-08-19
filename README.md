@@ -107,6 +107,12 @@ referenced posts), pagination information under `meta`, and possibly an
 canonical records are generated separately and retain pointers to every raw
 source. Posts present in both collections are deduplicated by X post ID and
 record both `like` and `bookmark` under `capture_methods`.
+After a successful fetch, `data/state/sync.json` records a source fingerprint
+and capture methods for each current post, reporting new, changed, and
+unchanged IDs. The state file is ignored with the rest of `data/`. Synthesis
+cache entries also carry a full source fingerprint, so unchanged posts reuse
+their existing enrichment while edited posts or newly captured context are
+eligible for another synthesis.
 
 For a known multi-post thread, optionally fetch only that conversation's posts
 from the focal author:
@@ -179,9 +185,10 @@ data/obsidian-preview/
 ```
 
 These directories are generated, gitignored, and separate from any real
-Obsidian vault. OpenRouter responses are cached by model plus post or media ID,
-so rerunning the same or an overlapping snapshot does not repeat successful
-paid calls. Media is also archived by media ID; normalization and Markdown
+Obsidian vault. Post synthesis is cached by model, prompt, and source
+fingerprint, while media extraction is cached by model and media ID, so
+rerunning the same or an overlapping snapshot does not repeat successful paid
+calls. Media is also archived by media ID; normalization and Markdown
 rendering may run again because they are local and deterministic. Root screenshots are
 archived and analyzed. Attached videos up to 10 minutes are archived at a
 moderate resolution, sampled into a six-frame contact sheet with `ffmpeg`, and

@@ -12,16 +12,20 @@ import {
 
 export const snapshotPattern = /^(likes|bookmarks)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:-page-\d{3})?\.json$/;
 
-export async function latestSnapshots(): Promise<string[]> {
-  const directory = resolve("data/raw");
+export async function latestSnapshots(directory = resolve("data/raw")): Promise<string[]> {
   const snapshots = (await readdir(directory)).flatMap((name) => {
     const match = name.match(snapshotPattern);
     return match ? [{ name, collection: match[1]!, timestamp: match[2]! }] : [];
   });
-  const latestTimestamp = snapshots.map(({ timestamp }) => timestamp).sort().at(-1);
-  if (!latestTimestamp) throw new Error("No raw X snapshots found in data/raw");
+  const latestByCollection = new Map<string, string>();
+  for (const { collection, timestamp } of snapshots) {
+    if (timestamp > (latestByCollection.get(collection) ?? "")) {
+      latestByCollection.set(collection, timestamp);
+    }
+  }
+  if (!latestByCollection.size) throw new Error("No raw X snapshots found in data/raw");
   return snapshots
-    .filter(({ timestamp }) => timestamp === latestTimestamp)
+    .filter(({ collection, timestamp }) => timestamp === latestByCollection.get(collection))
     .sort(
       (a, b) =>
         Number(b.collection === "likes") - Number(a.collection === "likes") ||
