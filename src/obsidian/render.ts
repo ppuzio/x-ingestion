@@ -49,7 +49,8 @@ function titleFor(post: SavedPost): string {
 }
 
 function filenameFor(title: string, id: string): string {
-  return `${safeName(title).slice(0, 90) || "X post"} -- ${safeName(id)}.md`;
+  const filenamePart = (value: string) => safeName(value).replaceAll(" ", "_");
+  return `${filenamePart(title).slice(0, 90) || "X_post"}--${filenamePart(id)}.md`;
 }
 
 function list(values: string[]): string[] {

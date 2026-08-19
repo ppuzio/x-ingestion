@@ -167,6 +167,8 @@ npm run preview:enrich -- --post=1496273922714902528 --refresh-synthesis
 `--post` enriches one saved post without replacing the full preview index.
 `--refresh-synthesis` replaces only its cached whole-post synthesis while
 reusing downloaded media, OCR, and translations.
+Generated note filenames use underscores instead of spaces for reliable
+Obsidian wikilinks; note titles and headings retain their readable spacing.
 
 Outputs are written to:
 

@@ -290,7 +290,8 @@ test("keeps a multi-line article title on one line in the note and filename", ()
 
   const note = renderObsidianNote(post);
   assert.equal(note.title, "Line one line two");
-  assert.equal(note.filename, "Line one line two -- 10.md");
+  assert.equal(note.filename, "Line_one_line_two--10.md");
+  assert.doesNotMatch(note.filename, /\s/);
   assert.match(note.markdown, /\n# Line one line two\n/);
 });
 
