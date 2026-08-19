@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import {
@@ -6,6 +6,10 @@ import {
   protectRelevanceAssessments,
   type RelevanceAssessment,
 } from "../llm/triage-relevance.ts";
+import {
+  parseRelevanceVerification,
+  RELEVANCE_VERIFICATION_VERSION,
+} from "../llm/verify-relevance.ts";
 import type { ImageExtraction, SavedPost, Translation } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
 
@@ -72,6 +76,43 @@ export async function hydrateCachedSourceContext(
       } else if (fragment.kind === "text" && cached.translation) {
         fragment.translation = cached.translation as Translation;
       }
+    }
+  }
+}
+
+export async function hydrateCachedRelevance(
+  posts: SavedPost[],
+  model: string,
+): Promise<void> {
+  const root = resolve(
+    "data/enrichment/relevance-verification",
+    RELEVANCE_VERIFICATION_VERSION,
+    modelDirectory(model),
+  );
+  let dates: string[];
+  try {
+    dates = (await readdir(root, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name))
+      .map(({ name }) => name)
+      .sort()
+      .reverse();
+  } catch {
+    return;
+  }
+  for (const post of posts) {
+    for (const date of dates) {
+      const path = resolve(root, date, `${post.id}.json`);
+      if (!(await exists(path))) continue;
+      const cached = JSON.parse(await readFile(path, "utf8")) as {
+        verification?: unknown;
+        createdAt?: unknown;
+      };
+      const verification = parseRelevanceVerification(cached.verification, post.id);
+      post.relevance = {
+        ...verification,
+        ...(typeof cached.createdAt === "string" ? { checkedAt: cached.createdAt } : {}),
+      };
+      break;
     }
   }
 }

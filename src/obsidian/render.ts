@@ -4,6 +4,7 @@ import type {
   MediaFragment,
   SavedPost,
   TextFragment,
+  WebPageFragment,
 } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
 
@@ -32,8 +33,12 @@ function titleFor(post: SavedPost): string {
   const article = post.fragments.find(
     (fragment): fragment is ArticleFragment => fragment.kind === "article",
   );
+  const webPage = post.fragments.find(
+    (fragment): fragment is WebPageFragment => fragment.kind === "web_page",
+  );
   const line =
     article?.title ??
+    webPage?.title ??
     textFragment(post)
       .text.split("\n")
       .map((value) => stripUrls(value).trim())
@@ -175,9 +180,13 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
   const links = post.fragments.filter(
     (fragment): fragment is LinkFragment => fragment.kind === "link",
   );
+  const webPages = post.fragments.filter(
+    (fragment): fragment is WebPageFragment => fragment.kind === "web_page",
+  );
   const contentTypes = [
     "text",
     ...articles.map(() => "article"),
+    ...webPages.map(() => "web_page"),
     ...media.map((item) => item.mediaType),
     ...post.relationships.map((item) => item.type),
   ].filter((value, index, all) => all.indexOf(value) === index);
@@ -225,6 +234,9 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
       ? [`video_archived: ${videos.every((item) => item.archived === true)}`]
       : []),
     `needs_synthesis: ${!enrichment}`,
+    ...(post.relevance
+      ? [`relevance_status: ${JSON.stringify(post.relevance.verdict)}`]
+      : []),
     ...(topics.length
       ? ["topics:", ...topics.map((value) => `  - ${JSON.stringify(value)}`)]
       : []),
@@ -261,6 +273,18 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
         `_${inlineMediaCount} inline article media item(s) are preserved in the canonical record but not placed because X does not expose reliable positions._`,
       );
     }
+  }
+
+  for (const page of webPages) {
+    lines.push(
+      "",
+      `## Linked page: ${page.title}`,
+      "",
+      `[Open linked page](${page.url})`,
+      ...(page.byline ? ["", `By ${page.byline}`] : []),
+      "",
+      page.text,
+    );
   }
 
   const visibleMedia = media.filter((item) => item.role !== "article");
@@ -303,6 +327,23 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
   }
 
   lines.push("", "## Summary", "", enrichment?.summary ?? "_Pending synthesis._");
+
+  if (post.relevance) {
+    lines.push(
+      "",
+      "## Freshness",
+      "",
+      `**${post.relevance.verdict.replaceAll("_", " ")}** — ${post.relevance.reason}`,
+      "",
+      `Current guidance: ${post.relevance.currentGuidance}`,
+      ...(post.relevance.evidenceUrls.length
+        ? [
+            "",
+            ...post.relevance.evidenceUrls.map((url) => `- [Evidence](${url})`),
+          ]
+        : []),
+    );
+  }
 
   if (enrichment) {
     lines.push(

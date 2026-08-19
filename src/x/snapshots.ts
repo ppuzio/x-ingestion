@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 import type { CaptureMethod, SavedPost } from "../model.ts";
+import { webPageFragment } from "../web/page.ts";
 import {
   mergeSavedPosts,
   normalizeContextResponse,
@@ -78,6 +79,24 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
     for (const name of latestByContext.values()) {
       const response = JSON.parse(await readFile(resolve(directory, name), "utf8"));
       post.relationships.push(normalizeContextResponse(response));
+    }
+  }
+  for (const post of posts) {
+    const webRoot = resolve("data/raw/web", post.id);
+    let captures: string[];
+    try {
+      captures = await readdir(webRoot);
+    } catch {
+      continue;
+    }
+    const latestByUrl = new Map<string, string>();
+    for (const name of captures.filter((candidate) => candidate.endsWith(".json")).sort()) {
+      const hash = name.match(/^page-([a-f0-9]{12})-/)?.[1];
+      if (hash) latestByUrl.set(hash, name);
+    }
+    for (const name of latestByUrl.values()) {
+      const capture = JSON.parse(await readFile(resolve(webRoot, name), "utf8"));
+      post.fragments.push(webPageFragment(capture));
     }
   }
   return posts;

@@ -129,6 +129,19 @@ it without crawling the surrounding conversation:
 npm run fetch:thread -- --post=1946249533543076159 --context=1946464726109782340
 ```
 
+After thread/context capture exposes an external article, fetch that post's
+captured links explicitly:
+
+```bash
+npm run fetch:links -- --post=1948581763154149606
+```
+
+This saves the unchanged HTML plus validated readable text under
+`data/raw/web/{post_id}/`. It follows at most five public redirects, refuses
+local/private addresses and non-HTML responses, stops after 20 seconds or 2 MB,
+and fetches at most five links for one explicitly selected post. Captured page
+text is then included in normalization, synthesis, and Markdown rendering.
+
 See X's official [Get Users Liked Posts reference](https://docs.x.com/x-api/users/get-liked-posts),
 [Get Bookmarks reference](https://docs.x.com/x-api/users/get-bookmarks),
 [authentication mapping](https://docs.x.com/fundamentals/authentication/guides/v2-authentication-mapping),
@@ -173,6 +186,7 @@ moderate resolution, sampled into a six-frame contact sheet with `ffmpeg`, and
 visually analyzed. Longer videos are not downloaded: `ffmpeg` seeks to six
 remote timestamps and only the fixed-size contact sheet is saved. Audio
 transcription remains pending. X Article text is rendered directly,
+captured external HTML is rendered as a linked page,
 while inline article media remains referenced until reliable placement can be
 determined. X's `zxx` label is retained as `source_language` for link-only
 wrapper posts and is not applied to the linked article body.

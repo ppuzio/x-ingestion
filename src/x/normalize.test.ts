@@ -294,6 +294,42 @@ test("keeps a multi-line article title on one line in the note and filename", ()
   assert.match(note.markdown, /\n# Line one line two\n/);
 });
 
+test("renders a captured external page as source material", () => {
+  const note = renderObsidianNote({
+    id: "11",
+    url: "https://x.com/author/status/11",
+    capturedAt: "2026-01-02T00:00:00Z",
+    author: { id: "20", username: "author" },
+    fragments: [
+      { kind: "text", source: "post", text: "Read this" },
+      {
+        kind: "web_page",
+        sourceUrl: "https://example.com/article",
+        url: "https://example.com/article",
+        contentType: "text/html",
+        title: "External article",
+        text: "Full captured article text.",
+        capturedAt: "2026-01-02T00:00:00Z",
+        rawPath: "data/raw/web/11/page.html",
+      },
+    ],
+    relationships: [],
+    relevance: {
+      verdict: "partly_current",
+      reason: "The core idea remains useful with one qualification.",
+      currentGuidance: "Apply the qualification.",
+      evidenceUrls: ["https://example.com/evidence"],
+    },
+    captureMethods: ["like"],
+    rawSources: [],
+  });
+  assert.equal(note.title, "External article");
+  assert.match(note.markdown, /## Linked page: External article/);
+  assert.match(note.markdown, /Full captured article text\./);
+  assert.match(note.markdown, /## Freshness/);
+  assert.match(note.markdown, /relevance_status: "partly_current"/);
+});
+
 test("keeps only the focal author's reachable thread continuation", () => {
   const focal = {
     id: "1",

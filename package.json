@@ -9,6 +9,7 @@
   "scripts": {
     "fetch:x": "node --env-file-if-exists=.env src/cli/fetch-likes.ts",
     "fetch:thread": "node --env-file-if-exists=.env src/cli/fetch-thread.ts",
+    "fetch:links": "node --env-file-if-exists=.env src/cli/fetch-links.ts",
     "preview": "node --env-file-if-exists=.env src/cli/build-preview.ts",
     "preview:enrich": "node --env-file-if-exists=.env src/cli/build-preview.ts --enrich",
     "triage:relevance": "node --env-file-if-exists=.env src/cli/triage-relevance.ts",
@@ -21,5 +22,9 @@
   "devDependencies": {
     "@types/node": "^24.2.1",
     "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.13"
   }
 }

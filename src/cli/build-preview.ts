@@ -25,6 +25,7 @@ import {
 } from "../x/snapshots.ts";
 import {
   exists,
+  hydrateCachedRelevance,
   modelDirectory,
   requiredEnvironmentVariable,
   runMain,
@@ -332,6 +333,9 @@ async function main(): Promise<void> {
     ? [resolve(requestedSnapshot)]
     : await latestSnapshots();
   const allPosts = await loadSnapshots(snapshots);
+  const verificationModel =
+    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5-mini";
+  await hydrateCachedRelevance(allPosts, verificationModel);
   const posts = postId ? allPosts.filter(({ id }) => id === postId) : allPosts;
   if (postId && !posts.length) throw new Error(`Saved post ${postId} was not found`);
   const apiKey = enrich ? requiredEnvironmentVariable("OPENROUTER_KEY") : undefined;

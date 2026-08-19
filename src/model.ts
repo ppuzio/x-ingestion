@@ -41,6 +41,14 @@ export interface PostEnrichment {
   promptVersion: string;
 }
 
+export interface PostRelevance {
+  verdict: "current" | "partly_current" | "superseded" | "opinion" | "unclear";
+  reason: string;
+  currentGuidance: string;
+  evidenceUrls: string[];
+  checkedAt?: string;
+}
+
 export interface TextFragment {
   kind: "text";
   source: "post" | "note";
@@ -87,11 +95,25 @@ export interface LinkFragment {
   title?: string;
 }
 
+export interface WebPageFragment {
+  kind: "web_page";
+  sourceUrl: string;
+  url: string;
+  contentType: string;
+  title: string;
+  byline?: string;
+  excerpt?: string;
+  text: string;
+  capturedAt: string;
+  rawPath: string;
+}
+
 export type ContentFragment =
   | TextFragment
   | ArticleFragment
   | MediaFragment
-  | LinkFragment;
+  | LinkFragment
+  | WebPageFragment;
 
 export interface PostRelationship {
   type: string;
@@ -114,6 +136,7 @@ export interface SavedPost {
   fragments: ContentFragment[];
   relationships: PostRelationship[];
   enrichment?: PostEnrichment;
+  relevance?: PostRelevance;
   captureMethods: CaptureMethod[];
   rawSources: RawSource[];
 }
