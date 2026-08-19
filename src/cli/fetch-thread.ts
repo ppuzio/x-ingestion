@@ -14,6 +14,7 @@ async function main(): Promise<void> {
   );
   if (!post) throw new Error(`Saved post ${postId} was not found`);
   if (!post.author.username) throw new Error(`Post ${postId} has no captured username`);
+  if (!post.createdAt) throw new Error(`Post ${postId} has no captured creation time`);
 
   const body = await fetchConversationRaw({
     bearerToken:
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
       requiredEnvironmentVariable("X_BEARER_TOKEN"),
     conversationId: post.conversationId ?? post.id,
     username: post.author.username,
+    createdAt: post.createdAt,
   });
   const timestamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
   const directory = resolve("data/raw");
@@ -29,7 +31,7 @@ async function main(): Promise<void> {
   await writeFile(path, body, { encoding: "utf8", flag: "wx" });
   const response = JSON.parse(body) as { data?: unknown };
   const count = Array.isArray(response.data) ? response.data.length : 0;
-  console.log(`Saved ${count} same-author conversation posts to ${path}`);
+  console.log(`Saved ${count} same-author window posts to ${path}`);
 }
 
 runMain(main);

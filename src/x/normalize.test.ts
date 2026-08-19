@@ -278,11 +278,11 @@ test("keeps only the focal author's reachable thread continuation", () => {
     {
       data: [
         {
-          id: "2",
+          id: "3",
           author_id: "20",
-          text: "second",
+          text: "third",
           created_at: "2022-01-01T00:02:00Z",
-          referenced_posts: [{ id: "1", type: "replied_to" }],
+          referenced_posts: [{ id: "2", type: "replied_to" }],
         },
         {
           id: "4",
@@ -292,11 +292,11 @@ test("keeps only the focal author's reachable thread continuation", () => {
           referenced_posts: [{ id: "99", type: "replied_to" }],
         },
         {
-          id: "3",
+          id: "2",
           author_id: "20",
-          text: "third",
-          created_at: "2022-01-01T00:03:00Z",
-          referenced_posts: [{ id: "2", type: "replied_to" }],
+          text: "second",
+          created_at: "2022-01-01T00:02:00Z",
+          referenced_posts: [{ id: "1", type: "replied_to" }],
         },
         {
           id: "5",

@@ -289,6 +289,7 @@ async function prepareSynthesis(
   post: SavedPost,
   apiKey: string | undefined,
   synthesisModel: string,
+  refresh: boolean,
 ): Promise<void> {
   if (!apiKey) return;
   const cachePath = resolve(
@@ -298,7 +299,9 @@ async function prepareSynthesis(
     modelDirectory(synthesisModel),
     `${post.id}.json`,
   );
-  const cached = await cachedJson<{ enrichment: PostEnrichment }>(cachePath);
+  const cached = refresh
+    ? undefined
+    : await cachedJson<{ enrichment: PostEnrichment }>(cachePath);
   if (cached) {
     post.enrichment = cached.enrichment;
     return;
@@ -321,11 +324,16 @@ async function prepareSynthesis(
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const enrich = arguments_.includes("--enrich");
+  const refreshSynthesis = arguments_.includes("--refresh-synthesis");
+  const postId = arguments_.find((argument) => argument.startsWith("--post="))
+    ?.slice("--post=".length);
   const requestedSnapshot = arguments_.find((argument) => !argument.startsWith("--"));
   const snapshots = requestedSnapshot
     ? [resolve(requestedSnapshot)]
     : await latestSnapshots();
-  const posts = await loadSnapshots(snapshots);
+  const allPosts = await loadSnapshots(snapshots);
+  const posts = postId ? allPosts.filter(({ id }) => id === postId) : allPosts;
+  if (postId && !posts.length) throw new Error(`Saved post ${postId} was not found`);
   const apiKey = enrich ? requiredEnvironmentVariable("OPENROUTER_KEY") : undefined;
   const visionModel =
     process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
@@ -344,7 +352,7 @@ async function main(): Promise<void> {
   for (const post of posts) {
     await prepareMedia(post, apiKey, visionModel);
     await prepareTranslation(post, apiKey, translationModel);
-    await prepareSynthesis(post, apiKey, synthesisModel);
+    await prepareSynthesis(post, apiKey, synthesisModel, refreshSynthesis);
     const note = renderObsidianNote(post, conceptVocabulary);
     await writeFile(resolve(previewRoot, note.filename), note.markdown, "utf8");
     rendered.push(note);
@@ -352,19 +360,21 @@ async function main(): Promise<void> {
 
   const normalizedPath = resolve(
     "data/normalized",
-    `x-${basename(snapshots[0]!).match(snapshotPattern)?.[2] ?? Date.now()}.normalized.json`,
+    `x-${basename(snapshots[0]!).match(snapshotPattern)?.[2] ?? Date.now()}${postId ? `-${postId}` : ""}.normalized.json`,
   );
   await saveJson(normalizedPath, posts);
-  await writeFile(
-    resolve(previewRoot, "_Index.md"),
-    [
-      "# X likes preview",
-      "",
-      ...rendered.map(({ filename, title }) => `- [[${filename.slice(0, -3)}|${title}]]`),
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  if (!postId) {
+    await writeFile(
+      resolve(previewRoot, "_Index.md"),
+      [
+        "# X likes preview",
+        "",
+        ...rendered.map(({ filename, title }) => `- [[${filename.slice(0, -3)}|${title}]]`),
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
 
   console.log(
     `Generated ${posts.length} preview notes in ${previewRoot}${enrich ? " with configured enrichment" : ""}`,

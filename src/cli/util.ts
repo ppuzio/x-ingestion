@@ -6,8 +6,21 @@ import {
   protectRelevanceAssessments,
   type RelevanceAssessment,
 } from "../llm/triage-relevance.ts";
-import type { SavedPost } from "../model.ts";
+import type { ImageExtraction, SavedPost, Translation } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
+
+let relevanceConfigPromise: Promise<{
+  overrides?: Record<string, { status?: unknown; reason?: unknown }>;
+}> | undefined;
+
+function relevanceConfig(): Promise<{
+  overrides?: Record<string, { status?: unknown; reason?: unknown }>;
+}> {
+  return relevanceConfigPromise ??= readFile(
+    resolve("config/relevance.json"),
+    "utf8",
+  ).then((text) => JSON.parse(text));
+}
 
 export async function exists(path: string): Promise<boolean> {
   try {
@@ -21,6 +34,46 @@ export async function exists(path: string): Promise<boolean> {
 export async function saveJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+export async function hydrateCachedSourceContext(
+  posts: SavedPost[],
+): Promise<void> {
+  const visionModel = modelDirectory(
+    process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct",
+  );
+  const translationModel = modelDirectory(
+    process.env.OPENROUTER_TRANSLATION_MODEL?.trim() ||
+      "qwen/qwen3-vl-32b-instruct",
+  );
+  for (const post of posts) {
+    for (const fragment of post.fragments) {
+      const path = fragment.kind === "media"
+        ? resolve(
+            "data/enrichment/vision",
+            visionModel,
+            `${fragment.mediaKey}${fragment.mediaType === "image" ? "" : "-frames"}.json`,
+          )
+        : fragment.kind === "text" && fragment.language &&
+            !["en", "und", "zxx"].includes(fragment.language)
+          ? resolve(
+              "data/enrichment/translation",
+              translationModel,
+              `${post.id}.json`,
+            )
+          : undefined;
+      if (!path || !(await exists(path))) continue;
+      const cached = JSON.parse(await readFile(path, "utf8")) as {
+        extraction?: unknown;
+        translation?: unknown;
+      };
+      if (fragment.kind === "media" && cached.extraction) {
+        fragment.extraction = cached.extraction as ImageExtraction;
+      } else if (fragment.kind === "text" && cached.translation) {
+        fragment.translation = cached.translation as Translation;
+      }
+    }
+  }
 }
 
 export function modelDirectory(model: string): string {
@@ -57,11 +110,30 @@ export async function loadCachedAssessment(
   const path = resolve(cacheRoot, `${post.id}.json`);
   if (!(await exists(path))) return undefined;
   const cached = JSON.parse(await readFile(path, "utf8")) as { assessment?: unknown };
-  return protectRelevanceAssessments(
+  const [assessment] = protectRelevanceAssessments(
     [post],
     parseRelevanceAssessments({ assessments: [cached.assessment] }, [post.id]),
     currentDate,
-  )[0]!;
+  );
+  const config = await relevanceConfig();
+  const override = config.overrides?.[post.id];
+  if (!override) return assessment!;
+  if (
+    !["durable", "non_knowledge", "unclear"].includes(
+      typeof override.status === "string" ? override.status : "",
+    ) ||
+    typeof override.reason !== "string" ||
+    !override.reason.trim()
+  ) {
+    throw new Error(`Invalid manual relevance override for ${post.id}`);
+  }
+  return {
+    postId: post.id,
+    status: override.status as "durable" | "non_knowledge" | "unclear",
+    reason: collapseWhitespace(override.reason),
+    needsWebCheck: false,
+    webQuery: null,
+  };
 }
 
 /** Single-line label for a post in a Markdown report link. */

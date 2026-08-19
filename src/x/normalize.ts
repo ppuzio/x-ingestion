@@ -271,8 +271,10 @@ export function normalizeThreadResponse(
   );
   const candidates = objects(response.data)
     .filter((post) => string(post.author_id) === focalPost.author.id)
-    .sort((a, b) =>
-      (string(a.created_at) ?? "").localeCompare(string(b.created_at) ?? ""),
+    .sort(
+      (a, b) =>
+        (string(a.created_at) ?? "").localeCompare(string(b.created_at) ?? "") ||
+        (string(a.id) ?? "").localeCompare(string(b.id) ?? ""),
     );
   const reachable = new Set([focalPost.id]);
   const continuations: PostRelationship[] = [];

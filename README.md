@@ -59,7 +59,11 @@ optional, separate app-only token; likes and bookmarks continue to use
 
 ```bash
 npm run fetch:x
+npm run fetch:x -- --refresh
 ```
+
+`--refresh` explicitly replaces a rejected user access token using the saved
+OAuth 2.0 refresh token; ordinary `403` responses remain non-refreshing.
 
 Each source is fetched independently, up to 1,000 posts in pages of 100. A
 `401` or `403` from one source is reported and skipped, so a token with only
@@ -111,11 +115,12 @@ from the focal author:
 npm run fetch:thread -- --post=1496273922714902528
 ```
 
-This calls `GET https://api.x.com/2/tweets/search/all` with
-`query=conversation_id:{conversation_id} from:{username}` and requires
+This calls `GET https://api.x.com/2/tweets/search/all` for at most 500 posts by
+the focal author during the following seven days and requires
 `X_ARCHIVE_BEARER_TOKEN` plus full-archive access. The raw response is saved as
 `data/raw/thread-{post_id}-{timestamp}.json`; normalization retains at most 25
-same-author replies reachable from the saved post and ignores side replies.
+same-author replies reachable from the saved post and ignores unrelated posts
+and side replies.
 
 See X's official [Get Users Liked Posts reference](https://docs.x.com/x-api/users/get-liked-posts),
 [Get Bookmarks reference](https://docs.x.com/x-api/users/get-bookmarks),
@@ -135,7 +140,13 @@ synthesis through OpenRouter:
 
 ```bash
 npm run preview:enrich
+npm run preview:enrich -- --post=1528800617233125376
+npm run preview:enrich -- --post=1496273922714902528 --refresh-synthesis
 ```
+
+`--post` enriches one saved post without replacing the full preview index.
+`--refresh-synthesis` replaces only its cached whole-post synthesis while
+reusing downloaded media, OCR, and translations.
 
 Outputs are written to:
 
@@ -164,6 +175,7 @@ Run an optional, cached relevance triage without web search:
 ```bash
 npm run triage:relevance
 npm run triage:relevance -- --limit=20
+npm run triage:relevance -- --post=1496273922714902528 --refresh
 ```
 
 It classifies posts as `durable`, `time_sensitive`, `non_knowledge`, or `unclear`
@@ -172,11 +184,14 @@ deletes or hides content. Only
 `time_sensitive` items receive a suggested query; no web search is performed
 by this command. Attached media does not make otherwise useful text unclear;
 missing media or links only prevent a `non_knowledge` verdict.
+Reviewed post-specific decisions live in `config/relevance.json` and override
+cached model triage without changing or deleting source material.
 
 Verify those candidates using OpenRouter web search:
 
 ```bash
 npm run verify:relevance
+npm run verify:relevance -- --report-only
 npm run verify:relevance -- --limit=3
 npm run verify:relevance -- --post=1500196959235227648 --refresh-evidence
 ```
@@ -188,6 +203,7 @@ the authoritative combined view in which verification replaces preliminary
 triage labels. Reports include up to three selected source links. Factual
 verdicts without citations are rejected. Opinion is kept
 separate from `current`/`superseded`, and this step also never deletes content.
+`--report-only` reuses existing dated caches and makes no OpenRouter calls.
 
 Post synthesis consumes normalized text plus completed translation and visual
 extractions. It produces cached, runtime-validated JSON for summaries, topics,

@@ -39,13 +39,16 @@ test("fetches the requested fields and returns the response body unchanged", asy
 });
 
 test("restricts full-archive thread search to one conversation and author", () => {
-  const url = buildConversationSearchUrl("1496273922714902528", "SeaRyanC");
-  assert.equal(url.pathname, "/2/tweets/search/all");
-  assert.equal(
-    url.searchParams.get("query"),
-    "conversation_id:1496273922714902528 from:SeaRyanC",
+  const url = buildConversationSearchUrl(
+    "1496273922714902528",
+    "SeaRyanC",
+    "2022-02-23T00:01:17.000Z",
   );
-  assert.equal(url.searchParams.get("max_results"), "100");
+  assert.equal(url.pathname, "/2/tweets/search/all");
+  assert.equal(url.searchParams.get("query"), "from:SeaRyanC");
+  assert.equal(url.searchParams.get("start_time"), "2022-02-23T00:01:16.000Z");
+  assert.equal(url.searchParams.get("end_time"), "2022-03-02T00:01:17.000Z");
+  assert.equal(url.searchParams.get("max_results"), "500");
 });
 
 test("fetches a bookmarks page with a pagination token", async () => {

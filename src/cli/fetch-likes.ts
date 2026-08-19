@@ -12,6 +12,7 @@ import { applyEnvAssignments, requiredEnvironmentVariable, runMain } from "./uti
 async function main(): Promise<void> {
   const userId = requiredEnvironmentVariable("X_USER_ID");
   let bearerToken = requiredEnvironmentVariable("X_BEARER_TOKEN");
+  const forceRefresh = process.argv.includes("--refresh");
   const now = new Date();
   let refreshed = false;
   let fetchedAny = false;
@@ -31,7 +32,7 @@ async function main(): Promise<void> {
         const clientId = process.env.X_CLIENT_ID?.trim();
         if (
           !(error instanceof XApiError) ||
-          error.status !== 401 ||
+          (error.status !== 401 && !(forceRefresh && error.status === 403)) ||
           refreshed ||
           !refreshToken ||
           !clientId

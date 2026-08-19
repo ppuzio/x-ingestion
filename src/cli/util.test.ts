@@ -10,6 +10,7 @@ import type { SavedPost } from "../model.ts";
 import {
   applyEnvAssignments,
   envAssignment,
+  loadCachedAssessment,
   modelDirectory,
   parseLimitArgument,
   reportTitle,
@@ -102,4 +103,39 @@ test("builds a single-line report title from an article, text, or the post url",
     "https://x.com/author/status/1",
   );
   assert.equal(reportTitle(post([{ kind: "text", source: "post", text: "x".repeat(150) }])).length, 100);
+});
+
+test("applies reviewed relevance decisions after cached model triage", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "x-ingestion-relevance-"));
+  const postId = "1535341564016349185";
+  await writeFile(
+    resolve(directory, `${postId}.json`),
+    JSON.stringify({
+      assessment: {
+        postId,
+        status: "unclear",
+        reason: "The model wanted more context.",
+        needsWebCheck: false,
+        webQuery: null,
+      },
+    }),
+    "utf8",
+  );
+  const assessment = await loadCachedAssessment(
+    directory,
+    {
+      id: postId,
+      url: `https://x.com/i/web/status/${postId}`,
+      createdAt: "2022-01-01T00:00:00Z",
+      capturedAt: "2026-08-19T00:00:00Z",
+      author: { id: "1" },
+      fragments: [{ kind: "text", source: "post", text: "The XOR trick finds the non-duplicate." }],
+      relationships: [],
+      captureMethods: ["like"],
+      rawSources: [],
+    },
+    "2026-08-19",
+  );
+  assert.equal(assessment?.status, "durable");
+  assert.match(assessment?.reason ?? "", /XOR/);
 });
