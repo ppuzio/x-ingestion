@@ -50,7 +50,10 @@ function titleFor(post: SavedPost): string {
 
 function filenameFor(title: string, id: string): string {
   const filenamePart = (value: string, limit = Number.POSITIVE_INFINITY) => {
-    const sanitized = safeName(value)
+    // Quotes drop out so "author's" reads as "authors"; everything else outside
+    // the allowlist — including every character safeName guards — collapses to
+    // one underscore.
+    const sanitized = value
       .replace(/[\u0060\u0027\u2019]/g, "")
       .replace(/[^\p{L}\p{N}_.-]+/gu, "_");
     return sanitized.slice(0, limit).replace(/_+$/g, "");

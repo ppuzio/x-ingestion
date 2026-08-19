@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import type { UrlCitation } from "../llm/openrouter.ts";
@@ -24,10 +24,12 @@ import {
 import type { SavedPost } from "../model.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import {
+  datedDirectories,
   exists,
   hydrateCachedSourceContext,
   loadCachedAssessment,
   modelDirectory,
+  parseArgument,
   parseLimitArgument,
   reportTitle,
   requiredEnvironmentVariable,
@@ -53,17 +55,7 @@ async function latestDatedCachePath(
   versionRoot: string,
   postId: string,
 ): Promise<string | undefined> {
-  let dates: string[];
-  try {
-    dates = (await readdir(versionRoot, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name))
-      .map(({ name }) => name)
-      .sort()
-      .reverse();
-  } catch {
-    return undefined;
-  }
-  for (const date of dates) {
+  for (const date of await datedDirectories(versionRoot)) {
     const path = resolve(versionRoot, date, `${postId}.json`);
     if (await exists(path)) return path;
   }
@@ -199,8 +191,7 @@ function auditReport(
 }
 
 async function main(): Promise<void> {
-  const postArgument = process.argv.find((argument) => argument.startsWith("--post="));
-  const postId = postArgument?.slice("--post=".length);
+  const postId = parseArgument(process.argv, "post");
   const refreshEvidence = process.argv.includes("--refresh-evidence");
   const reportOnly = process.argv.includes("--report-only");
   const limit = parseLimitArgument(process.argv);
@@ -238,7 +229,13 @@ async function main(): Promise<void> {
     : reportOnly
       ? triaged.slice(0, limit)
     : eligible.slice(0, limit);
-  if (!selected.length) throw new Error(`No eligible triage result found for ${postId}`);
+  if (!selected.length) {
+    throw new Error(
+      postId
+        ? `No eligible triage result found for ${postId}`
+        : "No triage results found; run npm run triage:relevance first",
+    );
+  }
 
   const evidenceVersionRoot = resolve(
     "data/enrichment/relevance-evidence",

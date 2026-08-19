@@ -14,6 +14,7 @@ import {
   loadCachedAssessment,
   hydrateCachedSourceContext,
   modelDirectory,
+  parseArguments,
   parseLimitArgument,
   reportTitle,
   requiredEnvironmentVariable,
@@ -71,9 +72,7 @@ function report(
 
 async function main(): Promise<void> {
   const limit = parseLimitArgument(process.argv);
-  const postIds = process.argv
-    .filter((argument) => argument.startsWith("--post="))
-    .map((argument) => argument.slice("--post=".length));
+  const postIds = parseArguments(process.argv, "post");
   const refresh = process.argv.includes("--refresh");
 
   const allPosts = oldestFirst(await loadSnapshots(await latestSnapshots()));

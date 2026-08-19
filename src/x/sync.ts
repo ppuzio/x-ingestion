@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { object } from "../json.ts";
 import type { CaptureMethod, SavedPost } from "../model.ts";
 
 export const SYNC_STATE_VERSION = 1;
@@ -36,22 +37,17 @@ function isCaptureMethod(value: unknown): value is CaptureMethod {
 }
 
 function parseState(value: unknown): SyncState {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Sync state must be an object");
-  }
-  const candidate = value as Record<string, unknown>;
+  const candidate = object(value);
+  if (!candidate) throw new Error("Sync state must be an object");
   if (candidate.version !== SYNC_STATE_VERSION || typeof candidate.updatedAt !== "string") {
     throw new Error("Unsupported sync state version");
   }
-  if (!candidate.posts || typeof candidate.posts !== "object" || Array.isArray(candidate.posts)) {
-    throw new Error("Sync state posts must be an object");
-  }
+  const rawPosts = object(candidate.posts);
+  if (!rawPosts) throw new Error("Sync state posts must be an object");
   const posts: Record<string, SyncPost> = {};
-  for (const [id, value] of Object.entries(candidate.posts)) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error(`Invalid sync state record for ${id}`);
-    }
-    const record = value as Record<string, unknown>;
+  for (const [id, entry] of Object.entries(rawPosts)) {
+    const record = object(entry);
+    if (!record) throw new Error(`Invalid sync state record for ${id}`);
     const methods = record.captureMethods;
     if (
       typeof record.sourceHash !== "string" ||

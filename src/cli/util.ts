@@ -17,13 +17,42 @@ let relevanceConfigPromise: Promise<{
   overrides?: Record<string, { status?: unknown; reason?: unknown }>;
 }> | undefined;
 
+const RELEVANCE_CONFIG_PATH = "config/relevance.json";
+
 function relevanceConfig(): Promise<{
   overrides?: Record<string, { status?: unknown; reason?: unknown }>;
 }> {
   return relevanceConfigPromise ??= readFile(
-    resolve("config/relevance.json"),
+    resolve(RELEVANCE_CONFIG_PATH),
     "utf8",
-  ).then((text) => JSON.parse(text));
+  ).then(
+    (text) => {
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        throw new Error(
+          `${RELEVANCE_CONFIG_PATH} is not valid JSON: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    },
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return {};
+      throw error;
+    },
+  );
+}
+
+/** Dated cache directories under `root`, newest first; empty when absent. */
+export async function datedDirectories(root: string): Promise<string[]> {
+  try {
+    return (await readdir(root, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name))
+      .map(({ name }) => name)
+      .sort()
+      .reverse();
+  } catch {
+    return [];
+  }
 }
 
 export async function exists(path: string): Promise<boolean> {
@@ -42,6 +71,7 @@ export async function saveJson(path: string, value: unknown): Promise<void> {
 
 export async function hydrateCachedSourceContext(
   posts: SavedPost[],
+  enrichmentRoot = resolve("data/enrichment"),
 ): Promise<void> {
   const visionModel = modelDirectory(
     process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct",
@@ -52,29 +82,36 @@ export async function hydrateCachedSourceContext(
   );
   for (const post of posts) {
     for (const fragment of post.fragments) {
-      const path = fragment.kind === "media"
-        ? resolve(
-            "data/enrichment/vision",
-            visionModel,
-            `${fragment.mediaKey}${fragment.mediaType === "image" ? "" : "-frames"}.json`,
+      // A video is analysed as frames only when it exposes an mp4 URL; without
+      // one the preview falls back to the still image and writes the unsuffixed
+      // cache, so both names have to be tried.
+      const paths = fragment.kind === "media"
+        ? (fragment.mediaType === "image" ? [""] : ["-frames", ""]).map((suffix) =>
+            resolve(
+              enrichmentRoot,
+              "vision",
+              visionModel,
+              `${fragment.mediaKey}${suffix}.json`,
+            ),
           )
         : fragment.kind === "text" && fragment.language &&
             !["en", "und", "zxx"].includes(fragment.language)
-          ? resolve(
-              "data/enrichment/translation",
-              translationModel,
-              `${post.id}.json`,
-            )
-          : undefined;
-      if (!path || !(await exists(path))) continue;
-      const cached = JSON.parse(await readFile(path, "utf8")) as {
-        extraction?: unknown;
-        translation?: unknown;
-      };
-      if (fragment.kind === "media" && cached.extraction) {
-        fragment.extraction = cached.extraction as ImageExtraction;
-      } else if (fragment.kind === "text" && cached.translation) {
-        fragment.translation = cached.translation as Translation;
+          ? [resolve(enrichmentRoot, "translation", translationModel, `${post.id}.json`)]
+          : [];
+      for (const path of paths) {
+        if (!(await exists(path))) continue;
+        const cached = JSON.parse(await readFile(path, "utf8")) as {
+          extraction?: unknown;
+          translation?: unknown;
+        };
+        if (fragment.kind === "media" && cached.extraction) {
+          fragment.extraction = cached.extraction as ImageExtraction;
+          break;
+        }
+        if (fragment.kind === "text" && cached.translation) {
+          fragment.translation = cached.translation as Translation;
+          break;
+        }
       }
     }
   }
@@ -89,16 +126,7 @@ export async function hydrateCachedRelevance(
     RELEVANCE_VERIFICATION_VERSION,
     modelDirectory(model),
   );
-  let dates: string[];
-  try {
-    dates = (await readdir(root, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(entry.name))
-      .map(({ name }) => name)
-      .sort()
-      .reverse();
-  } catch {
-    return;
-  }
+  const dates = await datedDirectories(root);
   for (const post of posts) {
     for (const date of dates) {
       const path = resolve(root, date, `${post.id}.json`);
@@ -129,10 +157,22 @@ export function requiredEnvironmentVariable(name: string): string {
   return value;
 }
 
+/** Every value passed as `--<flag>=<value>`, in command-line order. */
+export function parseArguments(argv: string[], flag: string): string[] {
+  const prefix = `--${flag}=`;
+  return argv
+    .filter((value) => value.startsWith(prefix))
+    .map((value) => value.slice(prefix.length));
+}
+
+/** The first value passed as `--<flag>=<value>`, if any. */
+export function parseArgument(argv: string[], flag: string): string | undefined {
+  return parseArguments(argv, flag)[0];
+}
+
 export function parseLimitArgument(argv: string[]): number {
-  const argument = argv.find((value) => value.startsWith("--limit="));
-  if (!argument) return Number.POSITIVE_INFINITY;
-  const raw = argument.slice("--limit=".length);
+  const raw = parseArgument(argv, "limit");
+  if (raw === undefined) return Number.POSITIVE_INFINITY;
   const limit = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
   if (!(limit > 0)) throw new Error("--limit must be a positive integer");
   return limit;
@@ -180,9 +220,11 @@ export async function loadCachedAssessment(
 /** Single-line label for a post in a Markdown report link. */
 export function reportTitle(post: SavedPost): string {
   const article = post.fragments.find((fragment) => fragment.kind === "article");
+  const webPage = post.fragments.find((fragment) => fragment.kind === "web_page");
   const text = post.fragments.find((fragment) => fragment.kind === "text");
   const candidate =
-    article?.title || stripUrls(text?.text ?? "").trim() || post.url;
+    article?.title || webPage?.title || stripUrls(text?.text ?? "").trim() ||
+    post.url;
   return collapseWhitespace(candidate).slice(0, 100);
 }
 

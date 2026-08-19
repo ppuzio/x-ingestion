@@ -31,6 +31,7 @@ import {
   exists,
   hydrateCachedRelevance,
   modelDirectory,
+  parseArgument,
   requiredEnvironmentVariable,
   runMain,
   saveJson,
@@ -305,10 +306,11 @@ async function prepareSynthesis(
     `${post.id}.json`,
   );
   const sourceHash = synthesisFingerprint(post);
-  const cached = refresh
-    ? undefined
-    : await cachedJson<{ enrichment: PostEnrichment; sourceHash?: string }>(cachePath);
-  if (cached?.sourceHash === sourceHash) {
+  const cached = await cachedJson<{
+    enrichment: PostEnrichment;
+    sourceHash?: string;
+  }>(cachePath);
+  if (!refresh && cached?.sourceHash === sourceHash) {
     post.enrichment = cached.enrichment;
     return;
   }
@@ -322,6 +324,9 @@ async function prepareSynthesis(
       ...result,
     });
   } catch (error) {
+    // Keep the last good synthesis rather than downgrading the note to pending
+    // because one call failed.
+    if (cached) post.enrichment = cached.enrichment;
     console.warn(
       `Synthesis failed for ${post.id}: ${error instanceof Error ? error.message : error}`,
     );
@@ -332,8 +337,7 @@ async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const enrich = arguments_.includes("--enrich");
   const refreshSynthesis = arguments_.includes("--refresh-synthesis");
-  const postId = arguments_.find((argument) => argument.startsWith("--post="))
-    ?.slice("--post=".length);
+  const postId = parseArgument(arguments_, "post");
   const requestedSnapshot = arguments_.find((argument) => !argument.startsWith("--"));
   const snapshots = requestedSnapshot
     ? [resolve(requestedSnapshot)]

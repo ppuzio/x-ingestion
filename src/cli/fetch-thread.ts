@@ -3,14 +3,12 @@ import { resolve } from "node:path";
 
 import { fetchConversationRaw, fetchPostRaw } from "../x/client.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
-import { requiredEnvironmentVariable, runMain } from "./util.ts";
+import { parseArgument, requiredEnvironmentVariable, runMain } from "./util.ts";
 
 async function main(): Promise<void> {
-  const postId = process.argv.find((value) => value.startsWith("--post="))
-    ?.slice("--post=".length);
+  const postId = parseArgument(process.argv, "post");
   if (!postId) throw new Error("Pass the saved thread opener as --post=<X post ID>");
-  const contextId = process.argv.find((value) => value.startsWith("--context="))
-    ?.slice("--context=".length);
+  const contextId = parseArgument(process.argv, "context");
   const post = (await loadSnapshots(await latestSnapshots())).find(
     ({ id }) => id === postId,
   );

@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import type { LinkFragment, SavedPost } from "../model.ts";
 import { fetchWebPage } from "../web/page.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
-import { runMain } from "./util.ts";
+import { parseArgument, runMain } from "./util.ts";
 
 const MAX_LINKS_PER_POST = 5;
 
@@ -63,8 +63,7 @@ async function capture(post: SavedPost, sourceUrl: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const postId = process.argv.find((value) => value.startsWith("--post="))
-    ?.slice("--post=".length);
+  const postId = parseArgument(process.argv, "post");
   if (!postId) throw new Error("Pass one saved post as --post=<X post ID>");
   const post = (await loadSnapshots(await latestSnapshots())).find(
     ({ id }) => id === postId,

@@ -49,6 +49,22 @@ function captureMethod(path: string): CaptureMethod {
   return basename(path).startsWith("bookmarks-") ? "bookmark" : "like";
 }
 
+/**
+ * Keeps the last filename per key. Capture filenames end in a sortable
+ * timestamp, so sorting by name puts the newest capture for a key last.
+ */
+function latestByKey(
+  names: string[],
+  keyOf: (name: string) => string | undefined,
+): string[] {
+  const latest = new Map<string, string>();
+  for (const name of [...names].sort()) {
+    const key = keyOf(name);
+    if (key) latest.set(key, name);
+  }
+  return [...latest.values()];
+}
+
 export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
   const posts = mergeSavedPosts(
     (
@@ -75,12 +91,11 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
   }
   for (const post of posts) {
     const prefix = `context-${post.id}-`;
-    const latestByContext = new Map<string, string>();
-    for (const name of names.filter((candidate) => candidate.startsWith(prefix)).sort()) {
-      const contextId = name.slice(prefix.length).split("-", 1)[0];
-      if (contextId) latestByContext.set(contextId, name);
-    }
-    for (const name of latestByContext.values()) {
+    const contextCaptures = latestByKey(
+      names.filter((candidate) => candidate.startsWith(prefix)),
+      (name) => name.slice(prefix.length).split("-", 1)[0],
+    );
+    for (const name of contextCaptures) {
       const response = JSON.parse(await readFile(resolve(directory, name), "utf8"));
       post.relationships.push(normalizeContextResponse(response));
     }
@@ -93,12 +108,10 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
     } catch {
       continue;
     }
-    const latestByUrl = new Map<string, string>();
-    for (const name of captures.filter((candidate) => candidate.endsWith(".json")).sort()) {
-      const hash = name.match(/^page-([a-f0-9]{12})-/)?.[1];
-      if (hash) latestByUrl.set(hash, name);
-    }
-    for (const name of latestByUrl.values()) {
+    for (const name of latestByKey(
+      captures.filter((candidate) => candidate.endsWith(".json")),
+      (candidate) => candidate.match(/^page-([a-f0-9]{12})-/)?.[1],
+    )) {
       const capture = JSON.parse(await readFile(resolve(webRoot, name), "utf8"));
       post.fragments.push(webPageFragment(capture));
     }
