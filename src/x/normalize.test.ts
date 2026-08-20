@@ -185,6 +185,42 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
   assert.ok(post.enrichment.concepts.includes("task boundary definition"));
 });
 
+test("escapes HTML-like source text outside extracted code fences", () => {
+  const note = renderObsidianNote({
+    id: "html",
+    url: "https://x.com/author/status/html",
+    capturedAt: "2026-01-02T00:00:00Z",
+    author: { id: "20", username: "author" },
+    fragments: [
+      { kind: "text", source: "post", text: "Use <button>" },
+      {
+        kind: "media",
+        mediaKey: "3_image",
+        mediaType: "image",
+        role: "attachment",
+        url: "https://img.test/button.jpg",
+        altText: "<button> example",
+        extraction: {
+          kind: "screenshot",
+          language: "JavaScript",
+          verbatimText: "<button />",
+          visualSummary: "A <button> element",
+          keyFacts: ["The <button> receives clicks."],
+          uncertainties: [],
+          model: "test/model",
+        },
+      },
+    ],
+    relationships: [],
+    captureMethods: ["like"],
+    rawSources: [],
+  });
+  const beforeCodeFence = note.markdown.split("#### Extracted text")[0]!;
+  assert.match(beforeCodeFence, /&lt;button&gt;/);
+  assert.doesNotMatch(beforeCodeFence, /<button>/);
+  assert.match(note.markdown, /```text\n<button \/>\n```/);
+});
+
 test("keeps zxx as source metadata instead of treating an article as zxx", () => {
   const [post] = normalizeLikesResponse(
     {

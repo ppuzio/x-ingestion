@@ -29,6 +29,10 @@ function safeName(value: string): string {
   return collapseWhitespace(value.replace(/[/\\:*?"<>|#[\]^]/g, "-"));
 }
 
+function markdownText(value: string): string {
+  return value.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
 function titleFor(post: SavedPost): string {
   const article = post.fragments.find(
     (fragment): fragment is ArticleFragment => fragment.kind === "article",
@@ -63,7 +67,7 @@ function filenameFor(title: string, id: string): string {
 
 function list(values: string[]): string[] {
   return values.length
-    ? values.map((value) => `- ${collapseWhitespace(value)}`)
+    ? values.map((value) => `- ${markdownText(collapseWhitespace(value))}`)
     : ["- None"];
 }
 
@@ -132,13 +136,13 @@ function renderMedia(media: MediaFragment, index: number): string[] {
     );
   }
   if (media.url) lines.push("", `[Open original media](${media.url})`);
-  if (media.altText) lines.push("", `Alt text: ${media.altText}`);
+  if (media.altText) lines.push("", `Alt text: ${markdownText(media.altText)}`);
   if (media.extraction) {
     lines.push(
       "",
       "#### Visual interpretation",
       "",
-      media.extraction.visualSummary,
+      markdownText(media.extraction.visualSummary),
       "",
       "#### Key facts",
       "",
@@ -252,7 +256,7 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     "status: unread",
     "---",
     "",
-    `# ${title}`,
+    `# ${markdownText(title)}`,
     "",
     `Source: [${post.author.username ? `@${post.author.username}` : "X post"}](${post.url})`,
     "",
@@ -260,15 +264,25 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
       ? "## Source post (no linguistic content)"
       : `## Original${text.language ? ` (${text.language})` : ""}`,
     "",
-    text.text,
+    markdownText(text.text),
   ];
 
   if (text.translation) {
-    lines.push("", "## English translation", "", text.translation.translatedText);
+    lines.push(
+      "",
+      "## English translation",
+      "",
+      markdownText(text.translation.translatedText),
+    );
   }
 
   for (const article of articles) {
-    lines.push("", `## Article: ${article.title}`, "", article.text);
+    lines.push(
+      "",
+      `## Article: ${markdownText(article.title)}`,
+      "",
+      markdownText(article.text),
+    );
     if (article.codeBlocks.length) {
       lines.push("", "### Article code blocks");
       for (const block of article.codeBlocks) {
@@ -287,12 +301,12 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
   for (const page of webPages) {
     lines.push(
       "",
-      `## Linked page: ${page.title}`,
+      `## Linked page: ${markdownText(page.title)}`,
       "",
       `[Open linked page](${page.url})`,
       ...(page.byline ? ["", `By ${page.byline}`] : []),
       "",
-      page.text,
+      markdownText(page.text),
     );
   }
 
@@ -310,7 +324,7 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
         `### ${relationship.type.replaceAll("_", " ")}`,
         "",
         `[Open referenced post](${relationship.url})`,
-        ...(relationship.text ? ["", relationship.text] : []),
+        ...(relationship.text ? ["", markdownText(relationship.text)] : []),
         ...(relationship.links?.length
           ? [
               "",
@@ -335,16 +349,21 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     );
   }
 
-  lines.push("", "## Summary", "", enrichment?.summary ?? "_Pending synthesis._");
+  lines.push(
+    "",
+    "## Summary",
+    "",
+    enrichment ? markdownText(enrichment.summary) : "_Pending synthesis._",
+  );
 
   if (post.relevance) {
     lines.push(
       "",
       "## Freshness",
       "",
-      `**${post.relevance.verdict.replaceAll("_", " ")}** — ${post.relevance.reason}`,
+      `**${post.relevance.verdict.replaceAll("_", " ")}** — ${markdownText(post.relevance.reason)}`,
       "",
-      `Current guidance: ${post.relevance.currentGuidance}`,
+      `Current guidance: ${markdownText(post.relevance.currentGuidance)}`,
       ...(post.relevance.evidenceUrls.length
         ? [
             "",
@@ -375,7 +394,7 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
       "",
       "## Why revisit",
       "",
-      enrichment.relevance,
+      markdownText(enrichment.relevance),
     );
   } else {
     lines.push("", "## Concepts", "", "_Pending synthesis._");
