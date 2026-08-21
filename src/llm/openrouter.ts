@@ -60,6 +60,12 @@ function responseMessage(rawResponse: unknown): JsonObject | undefined {
   return Array.isArray(choices) ? object(object(choices[0])?.message) : undefined;
 }
 
+function modelOptions(model: string): JsonObject {
+  return model.startsWith("openai/gpt-5")
+    ? { reasoning: { effort: "max" } }
+    : { temperature: 0 };
+}
+
 export async function requestStructuredJson(
   apiKey: string,
   model: string,
@@ -69,8 +75,8 @@ export async function requestStructuredJson(
 ): Promise<{ parsed: unknown; rawResponse: unknown; citations: UrlCitation[] }> {
   const rawResponse = await requestOpenRouter(apiKey, {
     model,
-    ...(!model.startsWith("openai/gpt-5") ? { temperature: 0 } : {}),
-    max_tokens: 4_000,
+    ...modelOptions(model),
+    max_tokens: 16_000,
     messages: [{ role: "user", content }],
     response_format: {
       type: "json_schema",
@@ -102,8 +108,8 @@ export async function requestWebSearch(
 ): Promise<{ text: string; citations: UrlCitation[]; rawResponse: unknown }> {
   const rawResponse = await requestOpenRouter(apiKey, {
     model,
-    ...(!model.startsWith("openai/gpt-5") ? { temperature: 0 } : {}),
-    max_tokens: 3_000,
+    ...modelOptions(model),
+    max_tokens: 12_000,
     messages: [{ role: "user", content }],
     tools: [
       {

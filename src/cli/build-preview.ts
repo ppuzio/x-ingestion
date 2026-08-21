@@ -344,7 +344,7 @@ async function main(): Promise<void> {
     : await latestSnapshots();
   const allPosts = await loadSnapshots(snapshots);
   const verificationModel =
-    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5-mini";
+    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5.6-luna";
   await hydrateCachedRelevance(allPosts, verificationModel);
   const posts = postId ? allPosts.filter(({ id }) => id === postId) : allPosts;
   if (postId && !posts.length) throw new Error(`Saved post ${postId} was not found`);

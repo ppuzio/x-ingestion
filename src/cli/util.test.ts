@@ -149,7 +149,7 @@ test("hydrates a video's vision cache written without the frames suffix", async 
 
 test("derives one directory name per model across commands", () => {
   assert.equal(modelDirectory("qwen/qwen3-vl-32b-instruct"), "qwen_qwen3-vl-32b-instruct");
-  assert.equal(modelDirectory("openai/gpt-5-mini"), "openai_gpt-5-mini");
+  assert.equal(modelDirectory("openai/gpt-5.6-luna"), "openai_gpt-5.6-luna");
 });
 
 test("builds a single-line report title from an article, text, or the post url", () => {

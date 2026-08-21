@@ -38,8 +38,8 @@ OPENROUTER_VISION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRANSLATION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_SYNTHESIS_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRIAGE_MODEL=qwen/qwen3-vl-32b-instruct
-OPENROUTER_VERIFICATION_MODEL=openai/gpt-5-mini
-OPENROUTER_SEARCH_MODEL=openai/gpt-5-mini
+OPENROUTER_VERIFICATION_MODEL=openai/gpt-5.6-luna
+OPENROUTER_SEARCH_MODEL=openai/gpt-5.6-luna
 ```
 
 Despite the variable's original name, `X_BEARER_TOKEN` must contain the OAuth

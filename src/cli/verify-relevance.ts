@@ -204,7 +204,7 @@ async function main(): Promise<void> {
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
     "qwen/qwen3-vl-32b-instruct";
   const model =
-    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5-mini";
+    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5.6-luna";
   const searchModel =
     process.env.OPENROUTER_SEARCH_MODEL?.trim() || model;
   const triageRoot = resolve(
