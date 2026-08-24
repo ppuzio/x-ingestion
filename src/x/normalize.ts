@@ -324,12 +324,20 @@ export function normalizeThreadResponse(
   return continuations;
 }
 
+export function hasUsableContextPost(input: unknown): boolean {
+  const response = object(input);
+  const post = object(response?.data);
+  const id = string(post?.id);
+  const authorId = string(post?.author_id);
+  return Boolean(post && id && authorId);
+}
+
 export function normalizeContextResponse(input: unknown): PostRelationship {
   const response = object(input);
   const post = object(response?.data);
   const id = string(post?.id);
   const authorId = string(post?.author_id);
-  if (!post || !id || !authorId) {
+  if (!hasUsableContextPost(input) || !post || !id || !authorId) {
     throw new Error("Raw X context response must contain one post and author ID");
   }
   return relationshipFrom(

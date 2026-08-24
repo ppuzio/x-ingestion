@@ -5,6 +5,7 @@ import type { CaptureMethod, SavedPost } from "../model.ts";
 import { webPageFragment } from "../web/page.ts";
 import {
   mergeSavedPosts,
+  hasUsableContextPost,
   normalizeContextResponse,
   normalizeLikesResponse,
   normalizeThreadResponse,
@@ -97,6 +98,7 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
     );
     for (const name of contextCaptures) {
       const response = JSON.parse(await readFile(resolve(directory, name), "utf8"));
+      if (!hasUsableContextPost(response)) continue;
       post.relationships.push(normalizeContextResponse(response));
     }
   }

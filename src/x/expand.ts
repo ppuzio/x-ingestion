@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 
 import type { LinkFragment, SavedPost, TextFragment } from "../model.ts";
 import { fetchConversationRaw, fetchPostRaw } from "./client.ts";
+import { hasUsableContextPost } from "./normalize.ts";
 import { fetchWebPage } from "../web/page.ts";
 
 export const MAX_LINKS_PER_POST = 5;
@@ -89,6 +90,9 @@ export async function captureContextForPost(
   const prefix = `context-${post.id}-${contextId}-`;
   if (await hasCapture(directory, prefix)) return { status: "skipped" };
   const body = await fetchPostRaw(bearerToken, contextId);
+  if (!hasUsableContextPost(JSON.parse(body))) {
+    throw new Error(`X context post ${contextId} was not available`);
+  }
   const path = resolve(directory, `${prefix}${timestamp(now)}.json`);
   await mkdir(directory, { recursive: true });
   await writeFile(path, body, { encoding: "utf8", flag: "wx" });

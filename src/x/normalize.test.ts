@@ -7,6 +7,7 @@ import { synthesisSource } from "../llm/enrich-post.ts";
 import { normalizeTopicCase, renderObsidianNote } from "../obsidian/render.ts";
 import {
   mergeSavedPosts,
+  hasUsableContextPost,
   normalizeContextResponse,
   normalizeLikesResponse,
   normalizeThreadResponse,
@@ -34,6 +35,11 @@ test("normalizes an exact provided context post with expanded links", () => {
       title: "Resource",
     },
   ]);
+});
+
+test("recognizes deleted or withheld context responses without treating them as posts", () => {
+  assert.equal(hasUsableContextPost({ errors: [{ title: "Not Found Error" }] }), false);
+  assert.equal(hasUsableContextPost({ data: { id: "2", author_id: "20" } }), true);
 });
 
 test("normalizes mixed X content into replayable fragments and renders it", () => {
