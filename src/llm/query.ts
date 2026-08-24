@@ -2,7 +2,7 @@ import { object, strings } from "../json.ts";
 import type { SearchCard } from "../query.ts";
 import { requestStructuredJson } from "./openrouter.ts";
 
-export const QUERY_PROMPT_VERSION = "v1";
+export const QUERY_PROMPT_VERSION = "v2";
 
 export interface KnowledgeIdea {
   name: string;
@@ -48,7 +48,7 @@ function compactCard(card: SearchCard): Omit<SearchCard, "score"> {
   };
 }
 
-function parseAnswer(value: unknown, cards: SearchCard[]): KnowledgeAnswer {
+export function parseKnowledgeAnswer(value: unknown, cards: SearchCard[]): KnowledgeAnswer {
   const root = object(value);
   const overview = root?.overview;
   const caveats = strings(root?.caveats);
@@ -63,7 +63,9 @@ function parseAnswer(value: unknown, cards: SearchCard[]): KnowledgeAnswer {
     throw new Error("Knowledge query output failed runtime validation");
   }
 
-  const ideas = rawIdeas.map((rawIdea, index) => {
+  const invalidSourceIds = new Set<string>();
+  const discardedIdeas: string[] = [];
+  const ideas = rawIdeas.flatMap((rawIdea, index) => {
     const idea = object(rawIdea);
     const name = idea?.name;
     const whatItIs = idea?.whatItIs;
@@ -79,15 +81,38 @@ function parseAnswer(value: unknown, cards: SearchCard[]): KnowledgeAnswer {
       !whyItMayHelp.trim() ||
       typeof firstExperiment !== "string" ||
       !firstExperiment.trim() ||
-      !sourcePostIds?.length ||
-      sourcePostIds.some((postId) => !ids.has(postId))
+      !sourcePostIds?.length
     ) {
       throw new Error(`Knowledge query idea ${index + 1} has invalid source references`);
     }
-    return { name, whatItIs, whyItMayHelp, firstExperiment, sourcePostIds };
+    const validSourceIds = [
+      ...new Set(
+        sourcePostIds.filter((postId) => {
+          if (ids.has(postId)) return true;
+          invalidSourceIds.add(postId);
+          return false;
+        }),
+      ),
+    ];
+    if (!validSourceIds.length) {
+      discardedIdeas.push(name);
+      return [];
+    }
+    return [{ name, whatItIs, whyItMayHelp, firstExperiment, sourcePostIds: validSourceIds }];
   });
 
-  return { overview, ideas, caveats };
+  if (!ideas.length) {
+    throw new Error("Knowledge query output contained no ideas with valid source references");
+  }
+  const warnings = [
+    ...(invalidSourceIds.size
+      ? [`Ignored unsupported source post ID(s): ${[...invalidSourceIds].join(", ")}.`]
+      : []),
+    ...(discardedIdeas.length
+      ? [`Dropped unsupported idea(s): ${discardedIdeas.join(", ")}.`]
+      : []),
+  ];
+  return { overview, ideas, caveats: [...warnings, ...caveats].slice(0, 5) };
 }
 
 export async function answerKnowledgeQuery(
@@ -116,8 +141,11 @@ export async function answerKnowledgeQuery(
           "Describe what the source says separately from why it may fit the user's goal.",
           "sourceExcerpt is captured source material; summary, concepts, technologies, and claims are generated metadata.",
           "Respect a candidate's freshness verdict and current guidance; do not present superseded advice as current.",
+          "Use sourcePostIds for citations only; never print raw post-ID lists or internal IDs in the prose fields.",
+          "Before returning, proofread every prose field for normal word spacing, punctuation, and grammar. Never concatenate adjacent words.",
           "If the evidence is weak or the query is underspecified, say so in caveats.",
           `\nUSER QUERY:\n${query}`,
+          `\nVALID SOURCE POST IDS:\n${cards.map((card) => card.postId).join(", ")}`,
           `\nCANDIDATE POSTS:\n${JSON.stringify(compactCards)}`,
         ].join(" "),
       },
@@ -167,5 +195,5 @@ export async function answerKnowledgeQuery(
     },
   );
 
-  return { answer: parseAnswer(parsed, cards), rawResponse };
+  return { answer: parseKnowledgeAnswer(parsed, cards), rawResponse };
 }
