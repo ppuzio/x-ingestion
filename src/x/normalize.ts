@@ -227,6 +227,7 @@ export function normalizeLikesResponse(
         : undefined;
       const referencedText =
         string(object(resolved?.note_post)?.text) ?? string(resolved?.text);
+      const referencedArticle = articleFrom(resolved ?? {});
       const referencedLanguage = string(resolved?.lang);
       const referencedLinks = linksFromEntities(resolved?.entities, "post");
       return [
@@ -235,6 +236,7 @@ export function normalizeLikesResponse(
           postId,
           url: `https://x.com/i/web/status/${postId}`,
           ...(referencedText ? { text: referencedText } : {}),
+          ...(referencedArticle ? { article: referencedArticle } : {}),
           ...(referencedLinks.length ? { links: referencedLinks } : {}),
           ...(referencedLanguage ? { language: referencedLanguage } : {}),
           ...(referencedAuthor ? { author: referencedAuthor } : {}),
@@ -271,6 +273,7 @@ function relationshipFrom(
 ): PostRelationship {
   const author = authorFrom(users.get(authorId), authorId);
   const text = string(object(post.note_post)?.text) ?? string(post.text);
+  const article = articleFrom(post);
   const links = linksFromEntities(post.entities, "post");
   const language = string(post.lang);
   const createdAt = string(post.created_at);
@@ -281,6 +284,7 @@ function relationshipFrom(
       ? `https://x.com/${author.username}/status/${id}`
       : `https://x.com/i/web/status/${id}`,
     ...(text ? { text } : {}),
+    ...(article ? { article } : {}),
     ...(links.length ? { links } : {}),
     ...(language ? { language } : {}),
     ...(createdAt ? { createdAt } : {}),
@@ -347,6 +351,24 @@ export function normalizeContextResponse(input: unknown): PostRelationship {
     post,
     usersById(response?.includes),
   );
+}
+
+export function mergeRelationshipContext(
+  existing: PostRelationship,
+  context: PostRelationship,
+): PostRelationship {
+  const links = [
+    ...(existing.links ?? []),
+    ...(context.links ?? []),
+  ];
+  return {
+    ...existing,
+    ...context,
+    type: existing.type,
+    ...(links.length
+      ? { links: [...new Map(links.map((link) => [link.url, link])).values()] }
+      : {}),
+  };
 }
 
 export function mergeSavedPosts(posts: SavedPost[]): SavedPost[] {

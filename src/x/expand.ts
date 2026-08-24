@@ -79,6 +79,18 @@ export function externalUrlsForPost(post: SavedPost): string[] {
   }))];
 }
 
+function onlyUrls(text: string): boolean {
+  const tokens = text.trim().split(/\s+/u);
+  return tokens.length > 0 && tokens.every((token) => /^https?:\/\/\S+$/u.test(token));
+}
+
+export function needsRelationshipContext(
+  relationship: SavedPost["relationships"][number],
+): boolean {
+  if (!["replied_to", "quoted"].includes(relationship.type)) return false;
+  return !relationship.text?.trim() || onlyUrls(relationship.text);
+}
+
 export async function captureContextForPost(
   post: SavedPost,
   contextId: string,
@@ -230,9 +242,7 @@ export async function expandThreadsAndContexts(
     failures: [],
   };
   for (const post of posts) {
-    for (const relationship of post.relationships.filter(
-      ({ type, text }) => type === "replied_to" && !text,
-    )) {
+    for (const relationship of post.relationships.filter(needsRelationshipContext)) {
       try {
         const result = await captureContextForPost(
           post,

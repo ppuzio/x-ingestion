@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { SavedPost } from "../model.ts";
-import { externalUrlsForPost, shouldExpandThread } from "./expand.ts";
+import {
+  externalUrlsForPost,
+  needsRelationshipContext,
+  shouldExpandThread,
+} from "./expand.ts";
 
 function post(text: string, relationships: SavedPost["relationships"] = []): SavedPost {
   return {
@@ -39,4 +43,33 @@ test("external link expansion deduplicates X-owned links and repeats", () => {
     ]),
   );
   assert.deepEqual(urls, ["https://example.com/article"]);
+});
+
+test("fetches missing or URL-only quoted context without crawling ordinary quotes", () => {
+  assert.equal(
+    needsRelationshipContext({
+      type: "quoted",
+      postId: "2",
+      url: "https://x.com/i/web/status/2",
+      text: "https://t.co/quoted",
+    }),
+    true,
+  );
+  assert.equal(
+    needsRelationshipContext({
+      type: "replied_to",
+      postId: "3",
+      url: "https://x.com/i/web/status/3",
+    }),
+    true,
+  );
+  assert.equal(
+    needsRelationshipContext({
+      type: "quoted",
+      postId: "4",
+      url: "https://x.com/i/web/status/4",
+      text: "A substantive quoted post",
+    }),
+    false,
+  );
 });

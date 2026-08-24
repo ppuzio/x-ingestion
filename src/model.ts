@@ -120,6 +120,7 @@ export interface PostRelationship {
   postId: string;
   url: string;
   text?: string;
+  article?: ArticleFragment;
   links?: LinkFragment[];
   language?: string;
   createdAt?: string;

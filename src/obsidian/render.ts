@@ -325,6 +325,26 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
         "",
         `[Open referenced post](${relationship.url})`,
         ...(relationship.text ? ["", markdownText(relationship.text)] : []),
+        ...(relationship.article
+          ? [
+              "",
+              `#### Article: ${markdownText(relationship.article.title)}`,
+              "",
+              markdownText(relationship.article.text),
+              ...(relationship.article.codeBlocks.length
+                ? [
+                    "",
+                    "##### Article code blocks",
+                    ...relationship.article.codeBlocks.flatMap((block) => [
+                      "",
+                      `\`\`\`\`${block.language ?? ""}`,
+                      block.code,
+                      "````",
+                    ]),
+                  ]
+                : []),
+            ]
+          : []),
         ...(relationship.links?.length
           ? [
               "",

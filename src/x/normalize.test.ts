@@ -8,6 +8,7 @@ import { normalizeTopicCase, renderObsidianNote } from "../obsidian/render.ts";
 import {
   mergeSavedPosts,
   hasUsableContextPost,
+  mergeRelationshipContext,
   normalizeContextResponse,
   normalizeLikesResponse,
   normalizeThreadResponse,
@@ -19,6 +20,7 @@ test("normalizes an exact provided context post with expanded links", () => {
       id: "2",
       author_id: "20",
       text: "resource https://t.co/example",
+      article: { title: "Context article", plain_text: "Context article body" },
       entities: {
         urls: [{ expanded_url: "https://example.com/resource", title: "Resource" }],
       },
@@ -26,6 +28,7 @@ test("normalizes an exact provided context post with expanded links", () => {
     includes: { users: [{ id: "20", username: "author" }] },
   });
   assert.equal(context.type, "provided_context");
+  assert.equal(context.article?.text, "Context article body");
   assert.equal(context.url, "https://x.com/author/status/2");
   assert.deepEqual(context.links, [
     {
@@ -40,6 +43,33 @@ test("normalizes an exact provided context post with expanded links", () => {
 test("recognizes deleted or withheld context responses without treating them as posts", () => {
   assert.equal(hasUsableContextPost({ errors: [{ title: "Not Found Error" }] }), false);
   assert.equal(hasUsableContextPost({ data: { id: "2", author_id: "20" } }), true);
+});
+
+test("merges fetched context into an existing relationship without duplicating it", () => {
+  const merged = mergeRelationshipContext(
+    {
+      type: "quoted",
+      postId: "2",
+      url: "https://x.com/i/web/status/2",
+      text: "https://t.co/quoted",
+    },
+    {
+      type: "provided_context",
+      postId: "2",
+      url: "https://x.com/author/status/2",
+      text: "https://t.co/quoted",
+      article: {
+        kind: "article",
+        title: "Quoted article",
+        text: "Article body",
+        codeBlocks: [],
+        mediaKeys: [],
+      },
+    },
+  );
+  assert.equal(merged.type, "quoted");
+  assert.equal(merged.url, "https://x.com/author/status/2");
+  assert.equal(merged.article?.text, "Article body");
 });
 
 test("normalizes mixed X content into replayable fragments and renders it", () => {
@@ -86,7 +116,13 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
           ],
         },
       ],
-      posts: [{ id: "30", text: "Quoted text", author_id: "40", lang: "en" }],
+      posts: [{
+        id: "30",
+        text: "Quoted text",
+        author_id: "40",
+        lang: "en",
+        article: { title: "Quoted article", plain_text: "Quoted article body" },
+      }],
     },
   };
 
@@ -138,6 +174,7 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
   assert.match(synthesisSource(post), /Useful visual fact/);
   assert.doesNotMatch(synthesisSource(post), /Low-level uncertainty/);
   assert.equal(post.relationships[0]?.text, "Quoted text");
+  assert.equal(post.relationships[0]?.article?.text, "Quoted article body");
   const bookmarked = normalizeLikesResponse(
     raw,
     "data/raw/bookmarks-fixture.json",
@@ -171,6 +208,7 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
   assert.match(note.markdown, /needs_synthesis: false/);
   assert.match(note.markdown, /\[\[Context Engineering\]\]/);
   assert.match(note.markdown, /Article body/);
+  assert.match(note.markdown, /Quoted article body/);
 
   const normalizedNote = renderObsidianNote(post, {
     aliases: {
