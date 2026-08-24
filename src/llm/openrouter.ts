@@ -4,6 +4,12 @@ import type { ImageExtraction, Translation } from "../model.ts";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TIMEOUT_MS = 2 * 60 * 1_000;
 
+export interface StructuredJsonOptions {
+  maxTokens?: number;
+  reasoningEffort?: "low" | "medium" | "high" | "max";
+  timeoutMs?: number;
+}
+
 export interface UrlCitation {
   url: string;
   title?: string;
@@ -32,6 +38,7 @@ export function parseUrlCitations(value: unknown): UrlCitation[] {
 async function requestOpenRouter(
   apiKey: string,
   body: JsonObject,
+  timeoutMs = OPENROUTER_TIMEOUT_MS,
 ): Promise<unknown> {
   const response = await fetch(OPENROUTER_URL, {
     method: "POST",
@@ -40,7 +47,7 @@ async function requestOpenRouter(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const rawText = await response.text();
   if (!response.ok) {
@@ -60,9 +67,12 @@ function responseMessage(rawResponse: unknown): JsonObject | undefined {
   return Array.isArray(choices) ? object(object(choices[0])?.message) : undefined;
 }
 
-function modelOptions(model: string): JsonObject {
+function modelOptions(
+  model: string,
+  reasoningEffort?: StructuredJsonOptions["reasoningEffort"],
+): JsonObject {
   return model.startsWith("openai/gpt-5")
-    ? { reasoning: { effort: "max" } }
+    ? { reasoning: { effort: reasoningEffort ?? "max" } }
     : { temperature: 0 };
 }
 
@@ -72,18 +82,19 @@ export async function requestStructuredJson(
   content: unknown[],
   schemaName: string,
   schema: JsonObject,
+  options: StructuredJsonOptions = {},
 ): Promise<{ parsed: unknown; rawResponse: unknown; citations: UrlCitation[] }> {
   const rawResponse = await requestOpenRouter(apiKey, {
     model,
-    ...modelOptions(model),
-    max_tokens: 16_000,
+    ...modelOptions(model, options.reasoningEffort),
+    max_tokens: options.maxTokens ?? 16_000,
     messages: [{ role: "user", content }],
     response_format: {
       type: "json_schema",
       json_schema: { name: schemaName, strict: true, schema },
     },
     provider: { require_parameters: true },
-  });
+  }, options.timeoutMs);
   const message = responseMessage(rawResponse);
   const messageContent = message?.content;
   if (typeof messageContent !== "string") {

@@ -220,6 +220,24 @@ while inline article media remains referenced until reliable placement can be
 determined. X's `zxx` label is retained as `source_language` for link-only
 wrapper posts and is not applied to the linked article body.
 
+## Ask the collection
+
+Use the canonical records for natural-language recommendations instead of
+asking an LLM to infer identity from Obsidian filenames:
+
+```bash
+npm run ask -- "Give me some ideas for improvements in my codebase that would make my work faster"
+```
+
+The command searches the latest normalized snapshot, sends compact matching
+cards to the configured OpenRouter model, and prints actionable ideas with
+links back to the supporting X posts. It does not perform web search and does
+not change the vault. Lexical matches are ranked first, with recent fallback
+cards retained so semantic recommendations are not limited to exact query
+words. `--limit=120` increases the number of candidate posts sent
+to the model. Set `OPENROUTER_QUERY_MODEL` to choose the query model; it falls
+back to `OPENROUTER_SYNTHESIS_MODEL`.
+
 Run an optional, cached relevance triage without web search:
 
 ```bash
