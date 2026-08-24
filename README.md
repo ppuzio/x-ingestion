@@ -114,6 +114,26 @@ cache entries also carry a full source fingerprint, so unchanged posts reuse
 their existing enrichment while edited posts or newly captured context are
 eligible for another synthesis.
 
+## One-command ingestion
+
+For a complete refresh, run:
+
+```bash
+npm run ingest
+```
+
+This fetches likes and bookmarks, expands posts with explicit thread markers,
+retrieves missing reply context, captures up to five external pages per post,
+and then builds enriched Obsidian previews. Existing thread, context, and page
+captures are reused, so rerunning the command is incremental. Expansion
+failures are reported but do not prevent previews for the rest of the batch.
+
+Use `npm run expand` when the X snapshots already exist and only source
+expansion is needed. The lower-level `fetch:thread` and `fetch:links` commands
+remain available for one-off, explicitly selected captures. Add
+`--dry-run` (and optionally `--limit=10`) to inspect the expansion candidates
+without making network requests.
+
 For a known multi-post thread, optionally fetch only that conversation's posts
 from the focal author:
 

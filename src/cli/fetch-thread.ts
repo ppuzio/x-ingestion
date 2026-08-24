@@ -1,7 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { fetchConversationRaw, fetchPostRaw } from "../x/client.ts";
+import {
+  captureContextForPost,
+  captureThreadForPost,
+} from "../x/expand.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import { parseArgument, requiredEnvironmentVariable, runMain } from "./util.ts";
 
@@ -16,31 +18,22 @@ async function main(): Promise<void> {
   const bearerToken =
     process.env.X_ARCHIVE_BEARER_TOKEN?.trim() ||
     requiredEnvironmentVariable("X_BEARER_TOKEN");
-  const timestamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
   const directory = resolve("data/raw");
   if (contextId) {
-    const body = await fetchPostRaw(bearerToken, contextId);
-    const path = resolve(directory, `context-${post.id}-${contextId}-${timestamp}.json`);
-    await mkdir(directory, { recursive: true });
-    await writeFile(path, body, { encoding: "utf8", flag: "wx" });
-    console.log(`Saved provided context post ${contextId} to ${path}`);
+    const result = await captureContextForPost(post, contextId, bearerToken, directory);
+    console.log(
+      result.status === "captured"
+        ? `Saved provided context post ${contextId} to ${result.path}`
+        : `Context post ${contextId} was already captured`,
+    );
     return;
   }
-  if (!post.author.username) throw new Error(`Post ${postId} has no captured username`);
-  if (!post.createdAt) throw new Error(`Post ${postId} has no captured creation time`);
-
-  const body = await fetchConversationRaw({
-    bearerToken,
-    conversationId: post.conversationId ?? post.id,
-    username: post.author.username,
-    createdAt: post.createdAt,
-  });
-  const path = resolve(directory, `thread-${post.id}-${timestamp}.json`);
-  await mkdir(directory, { recursive: true });
-  await writeFile(path, body, { encoding: "utf8", flag: "wx" });
-  const response = JSON.parse(body) as { data?: unknown };
-  const count = Array.isArray(response.data) ? response.data.length : 0;
-  console.log(`Saved ${count} same-author window posts to ${path}`);
+  const result = await captureThreadForPost(post, bearerToken, directory);
+  console.log(
+    result.status === "captured"
+      ? `Saved ${result.count ?? 0} same-author window posts to ${result.path}`
+      : `Thread for ${postId} was already captured`,
+  );
 }
 
 runMain(main);

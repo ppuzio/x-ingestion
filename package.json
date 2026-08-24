@@ -8,6 +8,8 @@
   },
   "scripts": {
     "fetch:x": "node --env-file-if-exists=.env src/cli/fetch-likes.ts",
+    "ingest": "node --env-file-if-exists=.env src/cli/ingest.ts",
+    "expand": "node --env-file-if-exists=.env src/cli/expand.ts",
     "fetch:thread": "node --env-file-if-exists=.env src/cli/fetch-thread.ts",
     "fetch:links": "node --env-file-if-exists=.env src/cli/fetch-links.ts",
     "preview": "node --env-file-if-exists=.env src/cli/build-preview.ts",
