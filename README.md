@@ -4,6 +4,9 @@ TypeScript pipeline for capturing liked X posts as unchanged raw JSON, mapping
 them into replayable source fragments, and generating experimental Obsidian
 preview notes. The real vault is never written by these commands.
 
+See the [end-to-end pipeline chart](docs/pipeline.md) for the data flow and
+command boundaries.
+
 ## Prerequisites
 
 - Node.js 22.18 or newer

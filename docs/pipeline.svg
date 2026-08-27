@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1540" viewBox="0 0 1600 1540" role="img" aria-labelledby="title description">
+  <title id="title">X likes ingestion pipeline</title>
+  <desc id="description">A visual map of X likes and bookmarks becoming raw snapshots, canonical SavedPost records, optional OpenRouter enrichment, normalized JSON, Obsidian previews, and LLM recommendations.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#202127"/>
+    </marker>
+    <style>
+      .bg { fill: #f7f6f2; }
+      .box { fill: #ffffff; stroke: #202127; stroke-width: 2.5; }
+      .dark { fill: #202127; stroke: #202127; }
+      .optional { fill: #fff3e9; stroke: #d96d37; stroke-width: 2.5; }
+      .output { fill: #f1f3f4; stroke: #202127; stroke-width: 2.5; }
+      .title { fill: #202127; font: 700 42px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -1px; }
+      .subtitle { fill: #5f626a; font: 400 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .step { fill: #d96d37; font: 700 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: 1.5px; }
+      .step-light { fill: #ffb58d; font: 700 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; letter-spacing: 1.5px; }
+      .heading { fill: #202127; font: 700 27px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -0.5px; }
+      .heading-light { fill: #ffffff; font: 700 27px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -0.5px; }
+      .body { fill: #42454d; font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .body-light { fill: #ececef; font: 400 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .mono { fill: #202127; font: 500 17px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+      .mono-light { fill: #ffffff; font: 500 17px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+      .small { fill: #777a82; font: 400 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .label { fill: #5f626a; font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .line { fill: none; stroke: #202127; stroke-width: 2.5; marker-end: url(#arrow); }
+      .dashed { fill: none; stroke: #777a82; stroke-width: 2.5; stroke-dasharray: 9 8; marker-end: url(#arrow); }
+      .rule { stroke: #d6d4ce; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="1540"/>
+
+  <text x="80" y="76" class="title">X likes → a replayable knowledge pipeline</text>
+  <text x="80" y="116" class="subtitle">Raw source data stays intact; every derived layer can be rebuilt or queried independently.</text>
+  <line x1="80" y1="145" x2="1520" y2="145" class="rule"/>
+
+  <!-- Capture row -->
+  <rect x="80" y="190" width="420" height="190" rx="4" class="dark"/>
+  <text x="112" y="228" class="step-light">01 / CAPTURE</text>
+  <text x="112" y="270" class="heading-light">X likes + bookmarks</text>
+  <text x="112" y="309" class="body-light">Authenticated user-context requests</text>
+  <text x="112" y="344" class="mono-light">npm run fetch:x</text>
+
+  <rect x="590" y="190" width="420" height="190" rx="4" class="box"/>
+  <text x="622" y="228" class="step">02 / PRESERVE</text>
+  <text x="622" y="270" class="heading">Raw snapshots</text>
+  <text x="622" y="309" class="body">One unchanged JSON page per request</text>
+  <text x="622" y="344" class="mono">data/raw/</text>
+  <text x="622" y="368" class="small">sync state tracks IDs and fingerprints</text>
+
+  <rect x="1100" y="190" width="420" height="190" rx="4" class="box"/>
+  <text x="1132" y="228" class="step">03 / EXPAND</text>
+  <text x="1132" y="270" class="heading">Capture missing context</text>
+  <text x="1132" y="309" class="body">Threads, replies, linked pages, media</text>
+  <text x="1132" y="344" class="mono">npm run expand</text>
+  <text x="1132" y="368" class="small">optional; raw snapshots are never rewritten</text>
+
+  <path d="M500 285 H580" class="line"/>
+  <path d="M1010 285 H1090" class="line"/>
+
+  <!-- Canonical record -->
+  <rect x="260" y="470" width="1080" height="190" rx="4" class="box"/>
+  <text x="300" y="510" class="step">04 / NORMALIZE</text>
+  <text x="300" y="553" class="heading">Canonical SavedPost records</text>
+  <text x="300" y="594" class="body">Merge likes + bookmarks by post.id · preserve fragments, relationships, and rawSources</text>
+  <text x="300" y="628" class="mono">npm run preview</text>
+  <text x="300" y="651" class="small">The stable machine-readable layer; filenames and Obsidian links are presentation only.</text>
+
+  <path d="M800 380 V460" class="line"/>
+  <path d="M1310 380 V425 H1280 V460" class="line"/>
+
+  <!-- Enrichment row -->
+  <rect x="80" y="750" width="500" height="190" rx="4" class="optional"/>
+  <text x="116" y="790" class="step">05A / OPTIONAL ENRICHMENT</text>
+  <text x="116" y="833" class="heading">OpenRouter processing</text>
+  <text x="116" y="870" class="body">OCR · video frames · translation</text>
+  <text x="116" y="902" class="body">structured synthesis · cached responses</text>
+  <text x="116" y="927" class="mono">npm run preview:enrich</text>
+
+  <rect x="650" y="750" width="500" height="190" rx="4" class="box"/>
+  <text x="686" y="790" class="step">05B / READY</text>
+  <text x="686" y="833" class="heading">Ready-to-render records</text>
+  <text x="686" y="870" class="body">Enriched when requested; otherwise deterministic</text>
+  <text x="686" y="902" class="body">and still fully replayable from source data.</text>
+
+  <path d="M420 660 V740" class="line"/>
+  <path d="M580 845 H640" class="line"/>
+  <path d="M800 660 V700 H900 V740" class="dashed"/>
+  <text x="822" y="692" class="label">without --enrich</text>
+
+  <!-- Outputs -->
+  <rect x="160" y="1030" width="500" height="180" rx="4" class="output"/>
+  <text x="192" y="1070" class="step">06A / CANONICAL OUTPUT</text>
+  <text x="192" y="1113" class="heading">Normalized JSON</text>
+  <text x="192" y="1150" class="mono">data/normalized/</text>
+  <text x="192" y="1180" class="small">records keyed by stable post ID</text>
+
+  <rect x="840" y="1030" width="500" height="180" rx="4" class="output"/>
+  <text x="872" y="1070" class="step">06B / HUMAN VIEW</text>
+  <text x="872" y="1113" class="heading">Obsidian preview</text>
+  <text x="872" y="1150" class="mono">data/obsidian-preview/</text>
+  <text x="872" y="1180" class="small">Markdown, attachments, and _Index.md</text>
+
+  <rect x="160" y="1270" width="500" height="180" rx="4" class="dark"/>
+  <text x="192" y="1310" class="step-light">06C / LLM QUERY</text>
+  <text x="192" y="1353" class="heading-light">Ask the collection</text>
+  <text x="192" y="1390" class="mono-light">npm run ask</text>
+  <text x="192" y="1420" class="body-light">retrieval → recommendations + URLs</text>
+
+  <path d="M900 940 V990 H410 V1020" class="line"/>
+  <path d="M900 940 V990 H1090 V1020" class="line"/>
+  <path d="M410 1210 V1260" class="line"/>
+
+  <!-- Human handoff -->
+  <rect x="840" y="1270" width="500" height="90" rx="4" class="box"/>
+  <text x="872" y="1307" class="step">07 / HANDOFF</text>
+  <text x="872" y="1342" class="body">Manually copy or sync the preview into the real vault.</text>
+  <path d="M1090 1210 V1260" class="line"/>
+
+  <text x="80" y="1505" class="small">The repository never writes the real Obsidian vault. Raw snapshots and normalized records remain the replay points.</text>
+</svg>
