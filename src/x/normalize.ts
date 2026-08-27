@@ -42,10 +42,12 @@ function usersById(includes: unknown): Map<string, JsonObject> {
   );
 }
 
-function isExternalUrl(url: string): boolean {
+export function isExternalUrl(url: string): boolean {
   try {
-    const hostname = new URL(url).hostname.replace(/^www\./, "");
-    return !["x.com", "twitter.com", "pic.x.com"].includes(hostname);
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return !["x.com", "twitter.com", "t.co", "twimg.com"].some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
   } catch {
     return false;
   }
@@ -379,10 +381,13 @@ export function mergeSavedPosts(posts: SavedPost[]): SavedPost[] {
       merged.set(post.id, post);
       continue;
     }
-    existing.captureMethods = [
+    const newest = post.capturedAt > existing.capturedAt ? post : existing;
+    const older = newest === post ? existing : post;
+    newest.captureMethods = [
       ...new Set([...existing.captureMethods, ...post.captureMethods]),
     ];
-    existing.rawSources.push(...post.rawSources);
+    newest.rawSources = [...newest.rawSources, ...older.rawSources];
+    merged.set(post.id, newest);
   }
   return [...merged.values()];
 }

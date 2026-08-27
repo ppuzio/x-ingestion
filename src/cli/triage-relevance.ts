@@ -11,6 +11,7 @@ import {
 import type { SavedPost } from "../model.ts";
 import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import {
+  applyRelevanceOverride,
   loadCachedAssessment,
   hydrateCachedSourceContext,
   modelDirectory,
@@ -118,9 +119,10 @@ async function main(): Promise<void> {
       currentDate,
     );
     for (const assessment of result.assessments) {
-      assessments.set(assessment.postId, assessment);
+      const reviewed = await applyRelevanceOverride(assessment);
+      assessments.set(reviewed.postId, reviewed);
       await saveJson(resolve(cacheRoot, `${assessment.postId}.json`), {
-        assessment,
+        assessment: reviewed,
         model,
         promptVersion: RELEVANCE_TRIAGE_VERSION,
         createdAt: new Date().toISOString(),

@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import type { SavedPost } from "../model.ts";
 import { synthesisFingerprint, SYNTHESIS_PROMPT_VERSION } from "../llm/enrich-post.ts";
 import {
+  applyRelevanceOverride,
   applyEnvAssignments,
   datedDirectories,
   envAssignment,
@@ -319,4 +320,16 @@ test("applies reviewed relevance decisions after cached model triage", async () 
   );
   assert.equal(assessment?.status, "durable");
   assert.match(assessment?.reason ?? "", /XOR/);
+});
+
+test("applies reviewed relevance decisions after fresh model triage", async () => {
+  const assessment = await applyRelevanceOverride({
+    postId: "1535341564016349185",
+    status: "unclear",
+    reason: "The model wanted more context.",
+    needsWebCheck: false,
+    webQuery: null,
+  });
+  assert.equal(assessment.status, "durable");
+  assert.match(assessment.reason, /XOR/);
 });

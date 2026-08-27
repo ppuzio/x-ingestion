@@ -2,8 +2,6 @@ import { object, strings } from "../json.ts";
 import type { SearchCard } from "../query.ts";
 import { requestStructuredJson } from "./openrouter.ts";
 
-export const QUERY_PROMPT_VERSION = "v2";
-
 export interface KnowledgeIdea {
   name: string;
   whatItIs: string;

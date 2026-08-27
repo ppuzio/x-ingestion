@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import type { LinkFragment, SavedPost, TextFragment } from "../model.ts";
 import { readJson } from "../json.ts";
 import { fetchConversationRaw, fetchPostRaw } from "./client.ts";
-import { hasUsableContextPost } from "./normalize.ts";
+import { hasUsableContextPost, isExternalUrl } from "./normalize.ts";
 import { fetchWebPage } from "../web/page.ts";
 
 export const MAX_LINKS_PER_POST = 5;
@@ -81,12 +81,7 @@ export function externalUrlsForPost(post: SavedPost): string[] {
   ];
   return [...new Set(links.flatMap(({ url }) => {
     try {
-      const hostname = new URL(url).hostname.toLowerCase();
-      return ["x.com", "twitter.com", "t.co", "twimg.com"].some(
-        (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
-      )
-        ? []
-        : [new URL(url).toString()];
+      return isExternalUrl(url) ? [new URL(url).toString()] : [];
     } catch {
       return [];
     }

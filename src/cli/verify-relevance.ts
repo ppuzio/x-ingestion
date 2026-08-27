@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { object, string } from "../json.ts";
 import type { UrlCitation } from "../llm/openrouter.ts";
 import {
   RELEVANCE_TRIAGE_VERSION,
@@ -39,13 +40,15 @@ import {
 function cachedCitations(value: unknown): UrlCitation[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const { url, title, content } = item as Record<string, unknown>;
-    if (typeof url !== "string" || !/^https?:\/\//.test(url)) return [];
+    const citation = object(item);
+    const url = string(citation?.url);
+    const title = string(citation?.title);
+    const content = string(citation?.content);
+    if (!url || !/^https?:\/\//.test(url)) return [];
     return [{
       url,
-      ...(typeof title === "string" && title.trim() ? { title } : {}),
-      ...(typeof content === "string" && content.trim() ? { content } : {}),
+      ...(title?.trim() ? { title } : {}),
+      ...(content?.trim() ? { content } : {}),
     }];
   });
 }

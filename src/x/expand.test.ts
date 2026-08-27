@@ -46,6 +46,25 @@ test("external link expansion deduplicates X-owned links and repeats", () => {
   assert.deepEqual(urls, ["https://example.com/article"]);
 });
 
+test("uses the same X-owned URL filter during normalization and expansion", () => {
+  const urls = externalUrlsForPost(
+    post("", [
+      {
+        type: "quoted",
+        postId: "2",
+        url: "https://x.com/example/status/2",
+        links: [
+          { kind: "link", source: "post", url: "https://sub.x.com/example" },
+          { kind: "link", source: "post", url: "https://t.co/short" },
+          { kind: "link", source: "post", url: "https://pbs.twimg.com/media/example" },
+          { kind: "link", source: "post", url: "https://example.com/resource" },
+        ],
+      },
+    ]),
+  );
+  assert.deepEqual(urls, ["https://example.com/resource"]);
+});
+
 test("fetches missing or URL-only quoted context without crawling ordinary quotes", () => {
   assert.equal(
     needsRelationshipContext({

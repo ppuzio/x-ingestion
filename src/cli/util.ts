@@ -275,9 +275,16 @@ export async function loadCachedAssessment(
     parseRelevanceAssessments({ assessments: [cached.assessment] }, [post.id]),
     currentDate,
   );
+  return applyRelevanceOverride(assessment!);
+}
+
+/** Applies a reviewed relevance decision without letting one bad entry stop a batch. */
+export async function applyRelevanceOverride(
+  assessment: RelevanceAssessment,
+): Promise<RelevanceAssessment> {
   const config = await relevanceConfig();
-  const override = config.overrides?.[post.id];
-  if (!override) return assessment!;
+  const override = config.overrides?.[assessment.postId];
+  if (!override) return assessment;
   if (
     !["durable", "non_knowledge", "unclear"].includes(
       typeof override.status === "string" ? override.status : "",
@@ -285,10 +292,11 @@ export async function loadCachedAssessment(
     typeof override.reason !== "string" ||
     !override.reason.trim()
   ) {
-    throw new Error(`Invalid manual relevance override for ${post.id}`);
+    console.warn(`Ignoring invalid manual relevance override for ${assessment.postId}`);
+    return assessment;
   }
   return {
-    postId: post.id,
+    postId: assessment.postId,
     status: override.status as "durable" | "non_knowledge" | "unclear",
     reason: collapseWhitespace(override.reason),
     needsWebCheck: false,

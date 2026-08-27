@@ -76,10 +76,6 @@ function wikilinks(values: string[]): string[] {
   return list(values.map((value) => `[[${safeName(value)}]]`));
 }
 
-export function normalizeTopicCase(value: string): string {
-  return vocabularyKey(value);
-}
-
 export function vocabularyKey(value: string): string {
   return collapseWhitespace(value).toLocaleLowerCase();
 }
@@ -94,14 +90,7 @@ export function canonicalizeVocabularyName(
   )?.[1] ?? value;
 }
 
-export function canonicalizeTopic(
-  value: string,
-  aliases: Record<string, string>,
-): string {
-  return normalizeTopicCase(canonicalizeVocabularyName(value, aliases));
-}
-
-export function canonicalizeConcept(
+export function canonicalizeVocabularyKey(
   value: string,
   aliases: Record<string, string>,
 ): string {
@@ -114,7 +103,7 @@ function canonicalizeTopics(
 ): string[] {
   const seen = new Set<string>();
   return values.flatMap((value) => {
-    const canonical = canonicalizeTopic(value, aliases);
+    const canonical = canonicalizeVocabularyKey(value, aliases);
     const key = vocabularyKey(canonical);
     if (seen.has(key)) return [];
     seen.add(key);
@@ -130,7 +119,7 @@ function renderConcepts(values: string[], vocabulary?: ConceptVocabulary): strin
   const seen = new Set<string>();
   const rendered: string[] = [];
   for (const original of values) {
-    const canonical = canonicalizeConcept(original, aliases);
+    const canonical = canonicalizeVocabularyKey(original, aliases);
     const key = vocabularyKey(canonical);
     if (seen.has(key)) continue;
     seen.add(key);

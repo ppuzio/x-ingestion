@@ -14,6 +14,7 @@ import {
 } from "./normalize.ts";
 
 export const snapshotPattern = /^(likes|bookmarks)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})(?:-page-\d{3})?\.json$/;
+const normalizedSnapshotPattern = /^x-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.normalized\.json$/;
 
 export async function latestSnapshots(directory = resolve("data/raw")): Promise<string[]> {
   const snapshots = (await readdir(directory)).flatMap((name) => {
@@ -35,6 +36,22 @@ export async function latestSnapshots(directory = resolve("data/raw")): Promise<
         a.name.localeCompare(b.name),
     )
     .map(({ name }) => resolve(directory, name));
+}
+
+/** The full merged snapshot only; per-post preview snapshots are intentionally excluded. */
+export async function latestNormalizedSnapshot(
+  directory = resolve("data/normalized"),
+): Promise<string | undefined> {
+  try {
+    const name = (await readdir(directory))
+      .filter((candidate) => normalizedSnapshotPattern.test(candidate))
+      .sort()
+      .at(-1);
+    return name ? resolve(directory, name) : undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
 }
 
 export function snapshotTimestamp(path: string): string | undefined {

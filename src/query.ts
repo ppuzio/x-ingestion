@@ -1,13 +1,11 @@
-import { readdir } from "node:fs/promises";
-import { resolve } from "node:path";
-
 import { object, readJson } from "./json.ts";
 import type { ContentFragment, SavedPost } from "./model.ts";
 import { collapseWhitespace } from "./text.ts";
-import { latestSnapshots, loadSnapshots } from "./x/snapshots.ts";
-
-const NORMALIZED_SNAPSHOT =
-  /^x-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})\.normalized\.json$/;
+import {
+  latestNormalizedSnapshot,
+  latestSnapshots,
+  loadSnapshots,
+} from "./x/snapshots.ts";
 
 const STOP_WORDS = new Set([
   "a",
@@ -185,28 +183,15 @@ function isSavedPost(value: unknown): value is SavedPost {
   );
 }
 
-async function latestNormalizedSnapshot(directory: string): Promise<string | undefined> {
-  const names = await readdir(directory);
-  return names
-    .flatMap((name) => (NORMALIZED_SNAPSHOT.test(name) ? [name] : []))
-    .sort()
-    .at(-1);
-}
-
 /** Loads the latest enriched canonical snapshot, with a raw-data fallback. */
 export async function loadLatestPosts(): Promise<SavedPost[]> {
-  const directory = resolve("data/normalized");
-  try {
-    const name = await latestNormalizedSnapshot(directory);
-    if (name) {
-      const parsed: unknown = await readJson(resolve(directory, name));
-      if (!Array.isArray(parsed) || !parsed.every(isSavedPost)) {
-        throw new Error(`Invalid canonical snapshot: ${name}`);
-      }
-      return parsed;
+  const snapshot = await latestNormalizedSnapshot();
+  if (snapshot) {
+    const parsed: unknown = await readJson(snapshot);
+    if (!Array.isArray(parsed) || !parsed.every(isSavedPost)) {
+      throw new Error(`Invalid canonical snapshot: ${snapshot}`);
     }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return parsed;
   }
 
   return loadSnapshots(await latestSnapshots());
