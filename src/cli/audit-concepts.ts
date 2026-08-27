@@ -2,7 +2,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { createHash } from "node:crypto";
 
-import { object, string, strings } from "../json.ts";
+import { object, readJson, string, strings } from "../json.ts";
 import { requestStructuredJson } from "../llm/openrouter.ts";
 import {
   canonicalizeConcept,
@@ -298,7 +298,7 @@ async function main(): Promise<void> {
   const snapshot = resolve(requestedSnapshot ?? (await latestNormalized()));
   const { vocabulary, fingerprint: vocabularyFingerprint } = await loadVocabulary();
   const collected = collectInventory(
-    JSON.parse(await readFile(snapshot, "utf8")) as unknown,
+    await readJson(snapshot),
     vocabulary,
   );
   const { synthesisVersion, includedPostCount, pendingPostIds } = collected;
@@ -328,7 +328,7 @@ async function main(): Promise<void> {
 
   let proposals: Proposal[];
   if (await exists(cachePath)) {
-    proposals = parseProposals(JSON.parse(await readFile(cachePath, "utf8")), items);
+    proposals = parseProposals(await readJson(cachePath), items);
   } else {
     const result = await requestStructuredJson(
       apiKey,

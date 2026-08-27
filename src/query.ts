@@ -1,7 +1,7 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { object } from "./json.ts";
+import { object, readJson } from "./json.ts";
 import type { ContentFragment, SavedPost } from "./model.ts";
 import { collapseWhitespace } from "./text.ts";
 import { latestSnapshots, loadSnapshots } from "./x/snapshots.ts";
@@ -199,7 +199,7 @@ export async function loadLatestPosts(): Promise<SavedPost[]> {
   try {
     const name = await latestNormalizedSnapshot(directory);
     if (name) {
-      const parsed: unknown = JSON.parse(await readFile(resolve(directory, name), "utf8"));
+      const parsed: unknown = await readJson(resolve(directory, name));
       if (!Array.isArray(parsed) || !parsed.every(isSavedPost)) {
         throw new Error(`Invalid canonical snapshot: ${name}`);
       }

@@ -1,5 +1,5 @@
-import { access, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { access, readFile, readdir, unlink } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 
 import {
   parseRelevanceAssessments,
@@ -14,6 +14,7 @@ import {
   synthesisFingerprint,
   SYNTHESIS_PROMPT_VERSION,
 } from "../llm/enrich-post.ts";
+import { readJson, writeJson } from "../json.ts";
 import type { ImageExtraction, PostEnrichment, SavedPost, Translation } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
 
@@ -26,24 +27,14 @@ const RELEVANCE_CONFIG_PATH = "config/relevance.json";
 function relevanceConfig(): Promise<{
   overrides?: Record<string, { status?: unknown; reason?: unknown }>;
 }> {
-  return relevanceConfigPromise ??= readFile(
+  return relevanceConfigPromise ??= readJson<{
+    overrides?: Record<string, { status?: unknown; reason?: unknown }>;
+  }>(
     resolve(RELEVANCE_CONFIG_PATH),
-    "utf8",
-  ).then(
-    (text) => {
-      try {
-        return JSON.parse(text);
-      } catch (error) {
-        throw new Error(
-          `${RELEVANCE_CONFIG_PATH} is not valid JSON: ${error instanceof Error ? error.message : error}`,
-        );
-      }
-    },
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return {};
-      throw error;
-    },
-  );
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return {};
+    throw error;
+  });
 }
 
 /** Dated cache directories under `root`, newest first; empty when absent. */
@@ -68,10 +59,7 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function saveJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
+export { readJson, writeJson as saveJson };
 
 function generatedPreviewPostId(markdown: string): string | undefined {
   const frontmatter = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
@@ -146,10 +134,10 @@ export async function hydrateCachedSourceContext(
           : [];
       for (const path of paths) {
         if (!(await exists(path))) continue;
-        const cached = JSON.parse(await readFile(path, "utf8")) as {
+        const cached = await readJson<{
           extraction?: unknown;
           translation?: unknown;
-        };
+        }>(path);
         if (fragment.kind === "media" && cached.extraction) {
           fragment.extraction = cached.extraction as ImageExtraction;
           break;
@@ -178,10 +166,10 @@ export async function hydrateCachedSynthesis(
   for (const post of posts) {
     const path = resolve(root, `${post.id}.json`);
     if (!(await exists(path))) continue;
-    const cached = JSON.parse(await readFile(path, "utf8")) as {
+    const cached = await readJson<{
       enrichment?: PostEnrichment;
       sourceHash?: string;
-    };
+    }>(path);
     if (cached.enrichment && cached.sourceHash === synthesisFingerprint(post)) {
       post.enrichment = cached.enrichment;
     }
@@ -202,10 +190,10 @@ export async function hydrateCachedRelevance(
     for (const date of dates) {
       const path = resolve(root, date, `${post.id}.json`);
       if (!(await exists(path))) continue;
-      const cached = JSON.parse(await readFile(path, "utf8")) as {
+      const cached = await readJson<{
         verification?: unknown;
         createdAt?: unknown;
-      };
+      }>(path);
       const verification = parseRelevanceVerification(cached.verification, post.id);
       post.relevance = {
         ...verification,
@@ -281,7 +269,7 @@ export async function loadCachedAssessment(
 ): Promise<RelevanceAssessment | undefined> {
   const path = resolve(cacheRoot, `${post.id}.json`);
   if (!(await exists(path))) return undefined;
-  const cached = JSON.parse(await readFile(path, "utf8")) as { assessment?: unknown };
+  const cached = await readJson<{ assessment?: unknown }>(path);
   const [assessment] = protectRelevanceAssessments(
     [post],
     parseRelevanceAssessments({ assessments: [cached.assessment] }, [post.id]),

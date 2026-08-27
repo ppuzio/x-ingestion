@@ -37,6 +37,7 @@ import {
   modelDirectory,
   parseArgument,
   reconcileGeneratedPreviewNotes,
+  readJson,
   requiredEnvironmentVariable,
   runMain,
   saveJson,
@@ -205,12 +206,12 @@ async function download(url: string, outputPath: string): Promise<void> {
     throw new Error(`Media download failed (${response.status}) for ${url}`);
   }
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, Buffer.from(await response.arrayBuffer()), { flag: "wx" });
+  await writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
 }
 
 async function cachedJson<T>(path: string): Promise<T | undefined> {
   if (!(await exists(path))) return undefined;
-  return JSON.parse(await readFile(path, "utf8")) as T;
+  return readJson<T>(path);
 }
 
 function dataUrl(buffer: Buffer, path: string): string {
@@ -431,16 +432,20 @@ async function main(): Promise<void> {
   const posts = postId ? allPosts.filter(({ id }) => id === postId) : allPosts;
   if (postId && !posts.length) throw new Error(`Saved post ${postId} was not found`);
   const apiKey = enrich ? requiredEnvironmentVariable("OPENROUTER_KEY") : undefined;
-  const conceptVocabulary = JSON.parse(
-    await readFile(resolve("config/concepts.json"), "utf8"),
-  ) as ConceptVocabulary;
+  const conceptVocabulary = await readJson<ConceptVocabulary>(resolve("config/concepts.json"));
 
   await mkdir(previewRoot, { recursive: true });
   const rendered = await mapWithConcurrency(
     posts,
     enrich ? ENRICHMENT_CONCURRENCY : 1,
     async (post) => {
-      await prepareMedia(post, apiKey, visionModel);
+      try {
+        await prepareMedia(post, apiKey, visionModel);
+      } catch (error) {
+        console.warn(
+          `Media preparation failed for ${post.id}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
       await prepareTranslation(post, apiKey, translationModel);
       await prepareSynthesis(post, apiKey, synthesisModel, refreshSynthesis);
       const note = renderObsidianNote(post, conceptVocabulary);

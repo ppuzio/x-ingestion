@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import type { LinkFragment, SavedPost, TextFragment } from "../model.ts";
+import { readJson } from "../json.ts";
 import { fetchConversationRaw, fetchPostRaw } from "./client.ts";
 import { hasUsableContextPost } from "./normalize.ts";
 import { fetchWebPage } from "../web/page.ts";
@@ -225,10 +226,10 @@ async function capturedWebUrls(directory: string): Promise<Set<string>> {
   }
   for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
     try {
-      const capture = JSON.parse(await readFile(join(directory, name), "utf8")) as {
+      const capture = await readJson<{
         sourceUrl?: unknown;
         finalUrl?: unknown;
-      };
+      }>(join(directory, name));
       for (const value of [capture.sourceUrl, capture.finalUrl]) {
         if (typeof value === "string") urls.add(value);
       }

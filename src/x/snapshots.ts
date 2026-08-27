@@ -1,7 +1,8 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 import type { CaptureMethod, SavedPost } from "../model.ts";
+import { readJson } from "../json.ts";
 import { webPageFragment } from "../web/page.ts";
 import {
   mergeSavedPosts,
@@ -73,7 +74,7 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
       await Promise.all(
         paths.map(async (path) =>
           normalizeLikesResponse(
-            JSON.parse(await readFile(path, "utf8")) as unknown,
+            await readJson(path),
             path,
             capturedAt(path),
             captureMethod(path),
@@ -88,7 +89,7 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
     const prefix = `thread-${post.id}-`;
     const latest = names.filter((name) => name.startsWith(prefix)).sort().at(-1);
     if (!latest) continue;
-    const response = JSON.parse(await readFile(resolve(directory, latest), "utf8"));
+    const response = await readJson(resolve(directory, latest));
     post.relationships.push(...normalizeThreadResponse(response, post));
   }
   for (const post of posts) {
@@ -98,7 +99,7 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
       (name) => name.slice(prefix.length).split("-", 1)[0],
     );
     for (const name of contextCaptures) {
-      const response = JSON.parse(await readFile(resolve(directory, name), "utf8"));
+      const response = await readJson(resolve(directory, name));
       if (!hasUsableContextPost(response)) continue;
       const context = normalizeContextResponse(response);
       const existing = post.relationships.find(
@@ -123,7 +124,7 @@ export async function loadSnapshots(paths: string[]): Promise<SavedPost[]> {
       captures.filter((candidate) => candidate.endsWith(".json")),
       (candidate) => candidate.match(/^page-([a-f0-9]{12})-/)?.[1],
     )) {
-      const capture = JSON.parse(await readFile(resolve(webRoot, name), "utf8"));
+      const capture = await readJson(resolve(webRoot, name));
       post.fragments.push(webPageFragment(capture));
     }
   }

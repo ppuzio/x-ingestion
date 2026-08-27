@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { runMain } from "./util.ts";
+
 const execFileAsync = promisify(execFile);
 
 async function runStage(label: string, script: string, args: string[] = []): Promise<void> {
@@ -28,7 +30,4 @@ async function main(): Promise<void> {
   console.log("\nIngestion complete");
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+runMain(main);

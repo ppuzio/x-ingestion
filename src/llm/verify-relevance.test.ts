@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { parseUrlCitations } from "./openrouter.ts";
 import {
+  cachedVerificationForEvidence,
   finalRelevanceStatus,
   parseRelevanceVerification,
   protectBroadReplacement,
@@ -11,6 +12,21 @@ import {
   requestedVerification,
   requireVerificationEvidence,
 } from "./verify-relevance.ts";
+
+test("drops a cached verification when fresh evidence no longer supports its citation", () => {
+  const verification = cachedVerificationForEvidence(
+    { id: "1", fragments: [], relationships: [] } as never,
+    {
+      postId: "1",
+      verdict: "current",
+      reason: "The source is still current.",
+      currentGuidance: "Keep it.",
+      evidenceUrls: ["https://example.com/old"],
+    },
+    [{ url: "https://example.com/new" }],
+  );
+  assert.equal(verification, undefined);
+});
 
 test("allows an explicit verification request for a durable triage result", () => {
   const assessment = requestedVerification(
