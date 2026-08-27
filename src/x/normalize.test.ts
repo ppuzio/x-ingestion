@@ -4,7 +4,11 @@ import test from "node:test";
 import { shouldArchiveVideo } from "../model.ts";
 import type { ArticleFragment, MediaFragment, TextFragment } from "../model.ts";
 import { synthesisSource } from "../llm/enrich-post.ts";
-import { normalizeTopicCase, renderObsidianNote } from "../obsidian/render.ts";
+import {
+  canonicalizeTopic,
+  normalizeTopicCase,
+  renderObsidianNote,
+} from "../obsidian/render.ts";
 import {
   mergeSavedPosts,
   hasUsableContextPost,
@@ -190,6 +194,7 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
     topics: ["Developer tools", "code quality", "code maintenance"],
     concepts: [
       "Context Engineering",
+      "context engineering",
       "task boundary definition",
       "turning grilling sessions into shareable questionnaires",
     ],
@@ -206,7 +211,8 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
   assert.match(note.markdown, /needs_translation: true/);
   assert.match(note.markdown, /needs_vision: true/);
   assert.match(note.markdown, /needs_synthesis: false/);
-  assert.match(note.markdown, /\[\[Context Engineering\]\]/);
+  assert.match(note.markdown, /\[\[context engineering\]\]/);
+  assert.equal(note.markdown.match(/\[\[context engineering\]\]/g)?.length, 1);
   assert.match(note.markdown, /Article body/);
   assert.match(note.markdown, /Quoted article body/);
 
@@ -295,10 +301,17 @@ test("archives only videos up to ten minutes", () => {
   assert.equal(shouldArchiveVideo(10 * 60 * 1_000 + 1), false);
 });
 
-test("normalizes topic casing without lowercasing acronyms", () => {
+test("normalizes vocabulary labels to lowercase", () => {
   assert.equal(normalizeTopicCase("Artificial Intelligence"), "artificial intelligence");
-  assert.equal(normalizeTopicCase("AI Agents"), "AI agents");
-  assert.equal(normalizeTopicCase("CI/CD Automation"), "CI/CD automation");
+  assert.equal(normalizeTopicCase("AI Agents"), "ai agents");
+  assert.equal(normalizeTopicCase("AI-Assisted Development"), "ai-assisted development");
+  assert.equal(normalizeTopicCase("CI/CD Automation"), "ci/cd automation");
+  assert.equal(
+    canonicalizeTopic("ai code assistants", {
+      "AI code assistants": "AI coding assistants",
+    }),
+    "ai coding assistants",
+  );
 });
 
 test("rejects a post id that could escape the preview directory", () => {

@@ -76,38 +76,65 @@ function wikilinks(values: string[]): string[] {
 }
 
 export function normalizeTopicCase(value: string): string {
-  return collapseWhitespace(value)
-    .split(" ")
-    .map((word) =>
-      /[A-Z]/.test(word) && word === word.toUpperCase()
-        ? word
-        : word.toLowerCase(),
-    )
-    .join(" ");
+  return vocabularyKey(value);
+}
+
+export function vocabularyKey(value: string): string {
+  return collapseWhitespace(value).toLocaleLowerCase();
+}
+
+export function canonicalizeVocabularyName(
+  value: string,
+  aliases: Record<string, string>,
+): string {
+  const key = vocabularyKey(value);
+  return aliases[value] ?? Object.entries(aliases).find(
+    ([alias]) => vocabularyKey(alias) === key,
+  )?.[1] ?? value;
+}
+
+export function canonicalizeTopic(
+  value: string,
+  aliases: Record<string, string>,
+): string {
+  return normalizeTopicCase(canonicalizeVocabularyName(value, aliases));
+}
+
+export function canonicalizeConcept(
+  value: string,
+  aliases: Record<string, string>,
+): string {
+  return vocabularyKey(canonicalizeVocabularyName(value, aliases));
 }
 
 function canonicalizeTopics(
   values: string[],
   aliases: Record<string, string>,
 ): string[] {
-  return [
-    ...new Set(
-      values.map((value) => normalizeTopicCase(aliases[value] ?? value)),
-    ),
-  ];
+  const seen = new Set<string>();
+  return values.flatMap((value) => {
+    const canonical = canonicalizeTopic(value, aliases);
+    const key = vocabularyKey(canonical);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [canonical];
+  });
 }
 
 function renderConcepts(values: string[], vocabulary?: ConceptVocabulary): string[] {
   const aliases = vocabulary?.aliases.concept ?? {};
-  const plainText = new Set(vocabulary?.plainText.concept ?? []);
+  const plainText = new Set(
+    (vocabulary?.plainText.concept ?? []).map(vocabularyKey),
+  );
   const seen = new Set<string>();
   const rendered: string[] = [];
   for (const original of values) {
-    const canonical = aliases[original] ?? original;
-    if (seen.has(canonical)) continue;
-    seen.add(canonical);
+    const canonical = canonicalizeConcept(original, aliases);
+    const key = vocabularyKey(canonical);
+    if (seen.has(key)) continue;
+    seen.add(key);
     rendered.push(
-      plainText.has(original) || plainText.has(canonical)
+      plainText.has(vocabularyKey(original)) || plainText.has(key)
         ? canonical
         : `[[${safeName(canonical)}]]`,
     );

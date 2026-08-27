@@ -41,6 +41,7 @@ OPENROUTER_VISION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRANSLATION_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_SYNTHESIS_MODEL=qwen/qwen3-vl-32b-instruct
 OPENROUTER_TRIAGE_MODEL=qwen/qwen3-vl-32b-instruct
+OPENROUTER_VOCABULARY_MODEL=openai/gpt-5.6-luna
 OPENROUTER_VERIFICATION_MODEL=openai/gpt-5.6-luna
 OPENROUTER_SEARCH_MODEL=openai/gpt-5.6-luna
 ```
@@ -290,22 +291,30 @@ Generate a read-only vocabulary proposal from the latest canonical snapshot:
 
 ```bash
 npm run audit:concepts
+npm run audit:concepts -- --allow-pending # audit completed syntheses; list excluded posts
+npm run audit:concepts -- --category=topic --allow-pending # focused canonical-topic pass
 ```
 
-The command makes one cached structured call using the synthesis model and
+The command makes one cached structured call using the vocabulary model (Luna
+by default) and
 writes `_Concept_Audit.md` beside the preview notes. It proposes at most 30
 high-confidence merges, renames, and candidates that should remain plain text.
 Unknown, cross-category, duplicate, and otherwise invalid rows are rejected
 before rendering. It never changes notes or wikilinks, and every surviving
 proposal still requires human approval; an approved alias registry is a
-separate later step.
+separate later step. By default the audit requires every post to be
+synthesized; `--allow-pending` makes the exclusion explicit in the report when
+one pending post should not block vocabulary review. `--category=topic` keeps
+the first canonical-vocabulary pass narrow; it uses the query model when set,
+then falls back to Luna.
 
 Approved vocabulary decisions live in `config/concepts.json`. Preview
 generation applies this registry only while rendering Markdown: aliases are
 deduplicated, rejected graph nodes remain plain text, and the original v4
 canonical enrichment is preserved unchanged. Topic comparison is
-case-insensitive: ordinary words render lowercase while uppercase acronyms are
-preserved, so `AI Agents` and `AI agents` become one `AI agents` topic.
+case-insensitive, as is concept matching: capitalization-only variants never
+need aliases. Ordinary topic words render lowercase while uppercase acronyms
+are preserved, so `AI Agents` and `AI agents` become one topic.
 
 ## Checks
 

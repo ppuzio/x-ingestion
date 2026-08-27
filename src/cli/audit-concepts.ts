@@ -1,18 +1,25 @@
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import { createHash } from "node:crypto";
 
 import { object, string, strings } from "../json.ts";
 import { requestStructuredJson } from "../llm/openrouter.ts";
-import { normalizeTopicCase } from "../obsidian/render.ts";
+import {
+  canonicalizeConcept,
+  canonicalizeTopic,
+  type ConceptVocabulary,
+  vocabularyKey,
+} from "../obsidian/render.ts";
 import {
   exists,
   modelDirectory,
+  parseArgument,
   requiredEnvironmentVariable,
   runMain,
   saveJson,
 } from "./util.ts";
 
-const AUDIT_VERSION = "v2";
+const AUDIT_VERSION = "v5";
 const categories = ["topic", "concept", "technology", "person"] as const;
 type Category = (typeof categories)[number];
 type Action = "merge" | "rename" | "do_not_link";
@@ -47,9 +54,22 @@ async function latestNormalized(): Promise<string> {
   return resolve(directory, latest);
 }
 
-function collectInventory(input: unknown): {
+async function loadVocabulary(): Promise<{
+  vocabulary: ConceptVocabulary;
+  fingerprint: string;
+}> {
+  const contents = await readFile(resolve("config/concepts.json"), "utf8");
+  return {
+    vocabulary: JSON.parse(contents) as ConceptVocabulary,
+    fingerprint: createHash("sha256").update(contents).digest("hex").slice(0, 12),
+  };
+}
+
+function collectInventory(input: unknown, vocabulary: ConceptVocabulary): {
   items: InventoryItem[];
   synthesisVersion: string;
+  includedPostCount: number;
+  pendingPostIds: string[];
 } {
   if (!Array.isArray(input)) throw new Error("Canonical snapshot must be an array");
   const fields: Record<Category, string> = {
@@ -60,28 +80,42 @@ function collectInventory(input: unknown): {
   };
   const entries = new Map<string, InventoryItem>();
   const versions = new Set<string>();
+  const pendingPostIds: string[] = [];
+  let includedPostCount = 0;
 
   for (const rawPost of input) {
     const post = object(rawPost);
     const id = string(post?.id);
     const enrichment = object(post?.enrichment);
-    const promptVersion = string(enrichment?.promptVersion);
-    if (!enrichment || !promptVersion) {
-      throw new Error(
-        `Post ${id ?? "(unknown id)"} has no synthesis; run npm run preview:enrich before auditing`,
-      );
-    }
     if (!id) throw new Error("Every canonical post must have an id");
+    if (!enrichment) {
+      pendingPostIds.push(id);
+      continue;
+    }
+    const promptVersion = string(enrichment.promptVersion);
+    if (!promptVersion) throw new Error(`Post ${id} has an invalid synthesis`);
     versions.add(promptVersion);
+    includedPostCount += 1;
     for (const category of categories) {
       const names = strings(enrichment[fields[category]]);
       if (!names) throw new Error(`Invalid ${fields[category]} for post ${id}`);
       const normalizedNames = names
         .map((value) => value.trim())
         .filter(Boolean)
-        .map((name) => category === "topic" ? normalizeTopicCase(name) : name);
-      for (const name of new Set(normalizedNames)) {
-        const key = `${category}\0${name}`;
+        .map((name) => {
+          if (category === "topic") {
+            return canonicalizeTopic(name, vocabulary.aliases.topic);
+          }
+          if (category === "concept") {
+            return canonicalizeConcept(name, vocabulary.aliases.concept);
+          }
+          return name;
+        });
+      const seenNames = new Set<string>();
+      for (const name of normalizedNames) {
+        const key = `${category}\0${vocabularyKey(name)}`;
+        if (seenNames.has(key)) continue;
+        seenNames.add(key);
         const entry = entries.get(key) ?? { category, name, count: 0, postIds: [] };
         entry.count += 1;
         entry.postIds.push(id);
@@ -90,6 +124,7 @@ function collectInventory(input: unknown): {
     }
   }
 
+  if (!includedPostCount) throw new Error("No synthesized posts available for concept audit");
   if (versions.size !== 1) {
     throw new Error("Concept audit requires one synthesis prompt version");
   }
@@ -100,6 +135,8 @@ function collectInventory(input: unknown): {
         a.name.localeCompare(b.name),
     ),
     synthesisVersion: [...versions][0]!,
+    includedPostCount,
+    pendingPostIds,
   };
 }
 
@@ -203,11 +240,14 @@ function renderReport(
   snapshot: string,
   model: string,
   synthesisVersion: string,
+  includedPostCount: number,
+  pendingPostIds: string[],
+  category: Category | undefined,
   inventory: InventoryItem[],
   proposals: Proposal[],
 ): string {
   const lines = [
-    "# Concept audit proposal",
+    "# Vocabulary audit proposal",
     "",
     "This report is read-only. No notes or wikilinks have been changed.",
     "Every proposal requires human approval. Reject merges that describe broader, narrower, or merely related ideas rather than true synonyms.",
@@ -216,6 +256,9 @@ function renderReport(
     `- Synthesis prompt: ${code(synthesisVersion)}`,
     `- Audit prompt: ${code(AUDIT_VERSION)}`,
     `- Audit model: ${code(model)}`,
+    `- Scope: ${category ?? "all categories"}`,
+    `- Posts included: ${includedPostCount}`,
+    `- Posts awaiting synthesis: ${pendingPostIds.length}${pendingPostIds.length ? ` (${pendingPostIds.join(", ")})` : ""}`,
     `- Candidate names: ${inventory.length}`,
     `- Proposed changes: ${proposals.length}`,
     ...renderSection(proposals, "merge", "Proposed merges"),
@@ -230,9 +273,9 @@ function renderReport(
     technology: "Technologies",
     person: "People",
   };
-  for (const category of categories) {
-    const items = inventory.filter((item) => item.category === category);
-    lines.push("", `### ${headings[category]} (${items.length})`, "");
+  for (const currentCategory of category ? [category] : categories) {
+    const items = inventory.filter((item) => item.category === currentCategory);
+    lines.push("", `### ${headings[currentCategory]} (${items.length})`, "");
     lines.push(
       ...items.map(
         (item) =>
@@ -244,18 +287,42 @@ function renderReport(
 }
 
 async function main(): Promise<void> {
-  const snapshot = resolve(process.argv[2] ?? (await latestNormalized()));
-  const { items, synthesisVersion } = collectInventory(
+  const arguments_ = process.argv.slice(2);
+  const allowPending = arguments_.includes("--allow-pending");
+  const requestedSnapshot = arguments_.find((argument) => !argument.startsWith("--"));
+  const requestedCategory = parseArgument(arguments_, "category");
+  if (requestedCategory && !categories.includes(requestedCategory as Category)) {
+    throw new Error(`--category must be one of: ${categories.join(", ")}`);
+  }
+  const category = requestedCategory as Category | undefined;
+  const snapshot = resolve(requestedSnapshot ?? (await latestNormalized()));
+  const { vocabulary, fingerprint: vocabularyFingerprint } = await loadVocabulary();
+  const collected = collectInventory(
     JSON.parse(await readFile(snapshot, "utf8")) as unknown,
+    vocabulary,
   );
+  const { synthesisVersion, includedPostCount, pendingPostIds } = collected;
+  const items = category
+    ? collected.items.filter((item) => item.category === category)
+    : collected.items;
+  if (!items.length) throw new Error(`No ${category ?? "vocabulary"} entries available for audit`);
+  if (pendingPostIds.length && !allowPending) {
+    throw new Error(
+      `Post ${pendingPostIds[0]} has no synthesis; run npm run preview:enrich before auditing, or use --allow-pending to exclude ${pendingPostIds.length} pending post${pendingPostIds.length === 1 ? "" : "s"}`,
+    );
+  }
   const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const model =
-    process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
+    process.env.OPENROUTER_VOCABULARY_MODEL?.trim() ||
+    process.env.OPENROUTER_QUERY_MODEL?.trim() ||
+    "openai/gpt-5.6-luna";
   const cachePath = resolve(
     "data/enrichment/concept-audit",
     AUDIT_VERSION,
     synthesisVersion,
     modelDirectory(model),
+    category ?? "all",
+    vocabularyFingerprint,
     basename(snapshot),
   );
 
@@ -271,11 +338,12 @@ async function main(): Promise<void> {
           type: "text",
           text: [
             "Audit this proposed Obsidian vocabulary. Return only changes worth human review; omitted entries remain unchanged.",
-            "Use merge only for true synonyms, rename for a clearer durable canonical name, and do_not_link for overly specific, ephemeral, sentence-like, or low-value graph nodes.",
-            "Related ideas are not necessarily synonyms. Be conservative with proper names, technologies, and people. Never merge across categories.",
+            "Use merge only when every member is genuinely interchangeable with the canonical name: case, punctuation, hyphen, acronym, singular/plural, or established synonym variants are acceptable.",
+            "Never merge a parent category with a subtype, task, tool, implementation, feature, discipline, or merely related topic. Sharing words is not evidence of synonymy; preserve useful specificity rather than flattening the vocabulary.",
+            "Use rename for a clearer durable canonical name, and do_not_link only for overly specific, ephemeral, sentence-like, or low-value graph nodes. Be conservative with proper names, technologies, and people. Never merge across categories.",
             "Every member must exactly match a name in the supplied inventory. This is a proposal only; do not claim changes were applied.",
             "Return no more than the 30 highest-confidence proposed changes.",
-            JSON.stringify(items),
+            JSON.stringify(items.map(({ category, name, count }) => ({ category, name, count }))),
           ].join("\n\n"),
         },
       ],
@@ -306,6 +374,7 @@ async function main(): Promise<void> {
         },
         required: ["proposals"],
       },
+      { maxTokens: 8_000, reasoningEffort: "medium" },
     );
     proposals = parseProposals(result.parsed, items);
     await saveJson(cachePath, { proposals, rawResponse: result.rawResponse });
@@ -314,7 +383,16 @@ async function main(): Promise<void> {
   const reportPath = resolve("data/obsidian-preview/_Concept_Audit.md");
   await writeFile(
     reportPath,
-    renderReport(snapshot, model, synthesisVersion, items, proposals),
+    renderReport(
+      snapshot,
+      model,
+      synthesisVersion,
+      includedPostCount,
+      pendingPostIds,
+      category,
+      items,
+      proposals,
+    ),
     "utf8",
   );
   console.log(`Wrote ${proposals.length} proposed changes to ${reportPath}`);
