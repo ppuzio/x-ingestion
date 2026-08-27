@@ -1,5 +1,5 @@
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { access, readFile, readdir, unlink } from "node:fs/promises";
+import { basename, resolve } from "node:path";
 
 import {
   parseRelevanceAssessments,
@@ -10,7 +10,12 @@ import {
   parseRelevanceVerification,
   RELEVANCE_VERIFICATION_VERSION,
 } from "../llm/verify-relevance.ts";
-import type { ImageExtraction, SavedPost, Translation } from "../model.ts";
+import {
+  synthesisFingerprint,
+  SYNTHESIS_PROMPT_VERSION,
+} from "../llm/enrich-post.ts";
+import { readJson, writeJson } from "../json.ts";
+import type { ImageExtraction, PostEnrichment, SavedPost, Translation } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
 
 let relevanceConfigPromise: Promise<{
@@ -22,24 +27,14 @@ const RELEVANCE_CONFIG_PATH = "config/relevance.json";
 function relevanceConfig(): Promise<{
   overrides?: Record<string, { status?: unknown; reason?: unknown }>;
 }> {
-  return relevanceConfigPromise ??= readFile(
+  return relevanceConfigPromise ??= readJson<{
+    overrides?: Record<string, { status?: unknown; reason?: unknown }>;
+  }>(
     resolve(RELEVANCE_CONFIG_PATH),
-    "utf8",
-  ).then(
-    (text) => {
-      try {
-        return JSON.parse(text);
-      } catch (error) {
-        throw new Error(
-          `${RELEVANCE_CONFIG_PATH} is not valid JSON: ${error instanceof Error ? error.message : error}`,
-        );
-      }
-    },
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return {};
-      throw error;
-    },
-  );
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return {};
+    throw error;
+  });
 }
 
 /** Dated cache directories under `root`, newest first; empty when absent. */
@@ -64,9 +59,48 @@ export async function exists(path: string): Promise<boolean> {
   }
 }
 
-export async function saveJson(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+export { readJson, writeJson as saveJson };
+
+function generatedPreviewPostId(markdown: string): string | undefined {
+  const frontmatter = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+  if (!frontmatter || !/^type: x-capture$/m.test(frontmatter) || !/^source: x$/m.test(frontmatter)) {
+    return undefined;
+  }
+  const rawPostId = frontmatter.match(/^post_id: (.+)$/m)?.[1];
+  if (!rawPostId) return undefined;
+  try {
+    const postId = JSON.parse(rawPostId);
+    return typeof postId === "string" && /^\d+$/.test(postId) ? postId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Deletes only superseded generated note names for posts rendered in this run.
+ * Files for absent posts and anything outside the project's x-capture format
+ * are left alone, so a preview rebuild cannot erase a user-owned note.
+ */
+export async function reconcileGeneratedPreviewNotes(
+  previewDirectory: string,
+  expectedFilenameByPostId: ReadonlyMap<string, string>,
+): Promise<string[]> {
+  const expected = new Map(
+    [...expectedFilenameByPostId].map(([postId, filename]) => [postId, basename(filename)]),
+  );
+  const removed: string[] = [];
+  for (const entry of await readdir(previewDirectory, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const path = resolve(previewDirectory, entry.name);
+    const postId = generatedPreviewPostId(await readFile(path, "utf8"));
+    const expectedFilename = postId ? expected.get(postId) : undefined;
+    if (!expectedFilename || entry.name === expectedFilename || !entry.name.endsWith(`--${postId}.md`)) {
+      continue;
+    }
+    await unlink(path);
+    removed.push(entry.name);
+  }
+  return removed.sort();
 }
 
 export async function hydrateCachedSourceContext(
@@ -100,10 +134,10 @@ export async function hydrateCachedSourceContext(
           : [];
       for (const path of paths) {
         if (!(await exists(path))) continue;
-        const cached = JSON.parse(await readFile(path, "utf8")) as {
+        const cached = await readJson<{
           extraction?: unknown;
           translation?: unknown;
-        };
+        }>(path);
         if (fragment.kind === "media" && cached.extraction) {
           fragment.extraction = cached.extraction as ImageExtraction;
           break;
@@ -113,6 +147,31 @@ export async function hydrateCachedSourceContext(
           break;
         }
       }
+    }
+  }
+}
+
+/** Reuses an unchanged synthesis during a local, no-LLM preview rebuild. */
+export async function hydrateCachedSynthesis(
+  posts: SavedPost[],
+  model: string,
+  enrichmentRoot = resolve("data/enrichment"),
+): Promise<void> {
+  const root = resolve(
+    enrichmentRoot,
+    "synthesis",
+    SYNTHESIS_PROMPT_VERSION,
+    modelDirectory(model),
+  );
+  for (const post of posts) {
+    const path = resolve(root, `${post.id}.json`);
+    if (!(await exists(path))) continue;
+    const cached = await readJson<{
+      enrichment?: PostEnrichment;
+      sourceHash?: string;
+    }>(path);
+    if (cached.enrichment && cached.sourceHash === synthesisFingerprint(post)) {
+      post.enrichment = cached.enrichment;
     }
   }
 }
@@ -131,10 +190,10 @@ export async function hydrateCachedRelevance(
     for (const date of dates) {
       const path = resolve(root, date, `${post.id}.json`);
       if (!(await exists(path))) continue;
-      const cached = JSON.parse(await readFile(path, "utf8")) as {
+      const cached = await readJson<{
         verification?: unknown;
         createdAt?: unknown;
-      };
+      }>(path);
       const verification = parseRelevanceVerification(cached.verification, post.id);
       post.relevance = {
         ...verification,
@@ -178,6 +237,26 @@ export function parseLimitArgument(argv: string[]): number {
   return limit;
 }
 
+/** Runs independent work with bounded concurrency while preserving input order. */
+export async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  work: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await work(values[index]!, index);
+      }
+    }),
+  );
+  return results;
+}
+
 /**
  * Reads one cached triage assessment. The deterministic protections are applied
  * on read so that a cached verdict and a fresh one agree, and so that every
@@ -190,15 +269,22 @@ export async function loadCachedAssessment(
 ): Promise<RelevanceAssessment | undefined> {
   const path = resolve(cacheRoot, `${post.id}.json`);
   if (!(await exists(path))) return undefined;
-  const cached = JSON.parse(await readFile(path, "utf8")) as { assessment?: unknown };
+  const cached = await readJson<{ assessment?: unknown }>(path);
   const [assessment] = protectRelevanceAssessments(
     [post],
     parseRelevanceAssessments({ assessments: [cached.assessment] }, [post.id]),
     currentDate,
   );
+  return applyRelevanceOverride(assessment!);
+}
+
+/** Applies a reviewed relevance decision without letting one bad entry stop a batch. */
+export async function applyRelevanceOverride(
+  assessment: RelevanceAssessment,
+): Promise<RelevanceAssessment> {
   const config = await relevanceConfig();
-  const override = config.overrides?.[post.id];
-  if (!override) return assessment!;
+  const override = config.overrides?.[assessment.postId];
+  if (!override) return assessment;
   if (
     !["durable", "non_knowledge", "unclear"].includes(
       typeof override.status === "string" ? override.status : "",
@@ -206,10 +292,11 @@ export async function loadCachedAssessment(
     typeof override.reason !== "string" ||
     !override.reason.trim()
   ) {
-    throw new Error(`Invalid manual relevance override for ${post.id}`);
+    console.warn(`Ignoring invalid manual relevance override for ${assessment.postId}`);
+    return assessment;
   }
   return {
-    postId: post.id,
+    postId: assessment.postId,
     status: override.status as "durable" | "non_knowledge" | "unclear",
     reason: collapseWhitespace(override.reason),
     needsWebCheck: false,

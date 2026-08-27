@@ -1,22 +1,27 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
 import type { SavedPost } from "../model.ts";
+import { synthesisFingerprint, SYNTHESIS_PROMPT_VERSION } from "../llm/enrich-post.ts";
 import {
+  applyRelevanceOverride,
   applyEnvAssignments,
   datedDirectories,
   envAssignment,
   hydrateCachedSourceContext,
+  hydrateCachedSynthesis,
   loadCachedAssessment,
+  mapWithConcurrency,
   modelDirectory,
   parseArgument,
   parseArguments,
   parseLimitArgument,
+  reconcileGeneratedPreviewNotes,
   reportTitle,
 } from "./util.ts";
 
@@ -91,6 +96,20 @@ test("reads repeated and single --flag= values off the command line", () => {
   assert.equal(parseArgument(["--refresh"], "refresh"), undefined);
 });
 
+test("maps independent work with a bounded concurrency and stable result order", async () => {
+  let active = 0;
+  let maximumActive = 0;
+  const results = await mapWithConcurrency(["first", "second", "third"], 2, async (value) => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    active -= 1;
+    return value.toUpperCase();
+  });
+  assert.deepEqual(results, ["FIRST", "SECOND", "THIRD"]);
+  assert.equal(maximumActive, 2);
+});
+
 test("lists dated cache directories newest first and tolerates a missing root", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "x-ingestion-dated-"));
   try {
@@ -104,6 +123,33 @@ test("lists dated cache directories newest first and tolerates a missing root", 
       "2025-12-31",
     ]);
     assert.deepEqual(await datedDirectories(resolve(directory, "absent")), []);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("removes only stale generated preview names for rendered posts", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "x-ingestion-preview-"));
+  const generated = (postId: string) => `---\ntype: x-capture\nsource: x\npost_id: ${JSON.stringify(postId)}\n---\n`;
+  try {
+    await Promise.all([
+      writeFile(resolve(directory, "Old_title--1.md"), generated("1"), "utf8"),
+      writeFile(resolve(directory, "New_title--1.md"), generated("1"), "utf8"),
+      writeFile(resolve(directory, "Old_title--2.md"), generated("2"), "utf8"),
+      writeFile(resolve(directory, "Manual--1.md"), "# Manual note\n", "utf8"),
+      writeFile(resolve(directory, "Not_generated--1.md"), "---\npost_id: \"1\"\n---\n", "utf8"),
+    ]);
+
+    assert.deepEqual(
+      await reconcileGeneratedPreviewNotes(directory, new Map([["1", "New_title--1.md"]])),
+      ["Old_title--1.md"],
+    );
+    assert.deepEqual((await readdir(directory)).sort(), [
+      "Manual--1.md",
+      "New_title--1.md",
+      "Not_generated--1.md",
+      "Old_title--2.md",
+    ]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -142,6 +188,53 @@ test("hydrates a video's vision cache written without the frames suffix", async 
       ),
       ["still frame", "contact sheet"],
     );
+  } finally {
+    await rm(enrichmentRoot, { recursive: true, force: true });
+  }
+});
+
+test("hydrates only a matching cached synthesis", async () => {
+  const enrichmentRoot = await mkdtemp(resolve(tmpdir(), "x-ingestion-synthesis-"));
+  const model = "openai/gpt-5.6-luna";
+  const post = {
+    id: "1",
+    url: "https://x.com/author/status/1",
+    author: { id: "author" },
+    fragments: [{ kind: "text", source: "post", text: "Useful source" }],
+    relationships: [],
+  } as unknown as SavedPost;
+  const enrichment = {
+    summary: "Useful summary.",
+    topics: [],
+    concepts: [],
+    technologies: [],
+    people: [],
+    claims: [],
+    relevance: "Useful.",
+    model,
+    promptVersion: SYNTHESIS_PROMPT_VERSION,
+  };
+  try {
+    const directory = resolve(
+      enrichmentRoot,
+      "synthesis",
+      SYNTHESIS_PROMPT_VERSION,
+      modelDirectory(model),
+    );
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      resolve(directory, "1.json"),
+      JSON.stringify({ sourceHash: synthesisFingerprint(post), enrichment }),
+      "utf8",
+    );
+
+    await hydrateCachedSynthesis([post], model, enrichmentRoot);
+    assert.deepEqual(post.enrichment, enrichment);
+
+    delete post.enrichment;
+    post.fragments = [{ kind: "text", source: "post", text: "Changed" }];
+    await hydrateCachedSynthesis([post], model, enrichmentRoot);
+    assert.equal(post.enrichment, undefined);
   } finally {
     await rm(enrichmentRoot, { recursive: true, force: true });
   }
@@ -227,4 +320,16 @@ test("applies reviewed relevance decisions after cached model triage", async () 
   );
   assert.equal(assessment?.status, "durable");
   assert.match(assessment?.reason ?? "", /XOR/);
+});
+
+test("applies reviewed relevance decisions after fresh model triage", async () => {
+  const assessment = await applyRelevanceOverride({
+    postId: "1535341564016349185",
+    status: "unclear",
+    reason: "The model wanted more context.",
+    needsWebCheck: false,
+    webQuery: null,
+  });
+  assert.equal(assessment.status, "durable");
+  assert.match(assessment.reason, /XOR/);
 });

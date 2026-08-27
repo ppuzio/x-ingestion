@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 
-import { object } from "../json.ts";
+import { object, readJson, writeJson } from "../json.ts";
 import type { CaptureMethod, SavedPost } from "../model.ts";
 
 export const SYNC_STATE_VERSION = 1;
@@ -70,7 +69,7 @@ function parseState(value: unknown): SyncState {
 
 export async function readSyncState(path = DEFAULT_SYNC_STATE_PATH): Promise<SyncState> {
   try {
-    return parseState(JSON.parse(await readFile(path, "utf8")) as unknown);
+    return parseState(await readJson(path));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyState();
     throw error;
@@ -81,8 +80,7 @@ export async function writeSyncState(
   state: SyncState,
   path = DEFAULT_SYNC_STATE_PATH,
 ): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await writeJson(path, state);
 }
 
 /** Hashes the unchanged X post payload, independent of like/bookmark source. */

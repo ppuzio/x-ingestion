@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { object, string } from "../json.ts";
 import type { UrlCitation } from "../llm/openrouter.ts";
 import {
   RELEVANCE_TRIAGE_VERSION,
@@ -10,13 +11,11 @@ import {
 import {
   RELEVANCE_EVIDENCE_VERSION,
   RELEVANCE_VERIFICATION_VERSION,
+  cachedVerificationForEvidence,
   classifyRelevance,
   finalRelevanceStatus,
-  parseRelevanceVerification,
-  protectVerification,
   requestedVerification,
   researchRelevance,
-  requireVerificationEvidence,
   type RelevanceVerification,
   type FinalRelevanceStatus,
   type VerificationVerdict,
@@ -31,6 +30,7 @@ import {
   modelDirectory,
   parseArgument,
   parseLimitArgument,
+  readJson,
   reportTitle,
   requiredEnvironmentVariable,
   runMain,
@@ -40,13 +40,15 @@ import {
 function cachedCitations(value: unknown): UrlCitation[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const { url, title, content } = item as Record<string, unknown>;
-    if (typeof url !== "string" || !/^https?:\/\//.test(url)) return [];
+    const citation = object(item);
+    const url = string(citation?.url);
+    const title = string(citation?.title);
+    const content = string(citation?.content);
+    if (!url || !/^https?:\/\//.test(url)) return [];
     return [{
       url,
-      ...(typeof title === "string" && title.trim() ? { title } : {}),
-      ...(typeof content === "string" && content.trim() ? { content } : {}),
+      ...(title?.trim() ? { title } : {}),
+      ...(content?.trim() ? { content } : {}),
     }];
   });
 }
@@ -262,17 +264,23 @@ async function main(): Promise<void> {
     );
     const evidencePath = resolve(evidenceRoot, `${post.id}.json`);
     let citations: UrlCitation[] = [];
+    let hasEvidence = false;
     const cachedEvidencePath = !refreshEvidence
       ? await latestDatedCachePath(evidenceVersionRoot, post.id)
       : undefined;
     if (cachedEvidencePath) {
-      const cached = JSON.parse(await readFile(cachedEvidencePath, "utf8")) as {
-        citations?: unknown;
-      };
-      citations = cachedCitations(cached.citations);
-    } else if (reportOnly) {
-      continue;
-    } else {
+      try {
+        const cached = await readJson<{ citations?: unknown }>(cachedEvidencePath);
+        citations = cachedCitations(cached.citations);
+        hasEvidence = true;
+      } catch (error) {
+        console.warn(
+          `Ignoring invalid evidence cache for ${post.id}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+    if (!hasEvidence && reportOnly) continue;
+    if (!hasEvidence) {
       const evidence = await researchRelevance(
         apiKey,
         searchModel,
@@ -299,17 +307,19 @@ async function main(): Promise<void> {
       ? await latestDatedCachePath(cacheVersionRoot, post.id)
       : undefined;
     if (cachedVerificationPath) {
-      const cached = JSON.parse(await readFile(cachedVerificationPath, "utf8")) as {
-        verification?: unknown;
-      };
-      const verification = protectVerification(
-        post,
-        parseRelevanceVerification(cached.verification, post.id),
-        citations,
-      );
-      requireVerificationEvidence(verification, citations);
-      rows.push({ post, verification, citations });
-      continue;
+      try {
+        const cached = await readJson<{ verification?: unknown }>(cachedVerificationPath);
+        const verification = cachedVerificationForEvidence(post, cached.verification, citations);
+        if (verification) {
+          rows.push({ post, verification, citations });
+          continue;
+        }
+        console.warn(`Ignoring stale verification cache for ${post.id}`);
+      } catch (error) {
+        console.warn(
+          `Ignoring invalid verification cache for ${post.id}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
     }
     if (reportOnly) continue;
     let result: Awaited<ReturnType<typeof classifyRelevance>>;

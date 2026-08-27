@@ -5,9 +5,9 @@ import { shouldArchiveVideo } from "../model.ts";
 import type { ArticleFragment, MediaFragment, TextFragment } from "../model.ts";
 import { synthesisSource } from "../llm/enrich-post.ts";
 import {
-  canonicalizeTopic,
-  normalizeTopicCase,
+  canonicalizeVocabularyKey,
   renderObsidianNote,
+  vocabularyKey,
 } from "../obsidian/render.ts";
 import {
   mergeSavedPosts,
@@ -211,6 +211,7 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
   assert.match(note.markdown, /needs_translation: true/);
   assert.match(note.markdown, /needs_vision: true/);
   assert.match(note.markdown, /needs_synthesis: false/);
+  assert.match(note.markdown, /## Source gaps/);
   assert.match(note.markdown, /\[\[context engineering\]\]/);
   assert.equal(note.markdown.match(/\[\[context engineering\]\]/g)?.length, 1);
   assert.match(note.markdown, /Article body/);
@@ -233,6 +234,27 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
     /\[\[turning grilling sessions into shareable questionnaires\]\]/,
   );
   assert.ok(post.enrichment.concepts.includes("task boundary definition"));
+});
+
+test("keeps the freshest duplicate post while preserving both capture sources", () => {
+  const earlier = normalizeLikesResponse(
+    { data: [{ id: "1", text: "Earlier text", author_id: "20" }] },
+    "data/raw/likes-earlier.json",
+    "2026-01-01T00:00:00Z",
+    "like",
+  )[0]!;
+  const later = normalizeLikesResponse(
+    { data: [{ id: "1", text: "Later text", author_id: "20" }] },
+    "data/raw/bookmarks-later.json",
+    "2026-01-02T00:00:00Z",
+    "bookmark",
+  )[0]!;
+
+  const [merged] = mergeSavedPosts([earlier, later]);
+  assert.equal(merged?.capturedAt, "2026-01-02T00:00:00Z");
+  assert.equal(merged?.fragments.find((fragment) => fragment.kind === "text")?.text, "Later text");
+  assert.deepEqual(merged?.captureMethods, ["like", "bookmark"]);
+  assert.equal(merged?.rawSources.length, 2);
 });
 
 test("escapes HTML-like source text outside extracted code fences", () => {
@@ -302,12 +324,12 @@ test("archives only videos up to ten minutes", () => {
 });
 
 test("normalizes vocabulary labels to lowercase", () => {
-  assert.equal(normalizeTopicCase("Artificial Intelligence"), "artificial intelligence");
-  assert.equal(normalizeTopicCase("AI Agents"), "ai agents");
-  assert.equal(normalizeTopicCase("AI-Assisted Development"), "ai-assisted development");
-  assert.equal(normalizeTopicCase("CI/CD Automation"), "ci/cd automation");
+  assert.equal(vocabularyKey("Artificial Intelligence"), "artificial intelligence");
+  assert.equal(vocabularyKey("AI Agents"), "ai agents");
+  assert.equal(vocabularyKey("AI-Assisted Development"), "ai-assisted development");
+  assert.equal(vocabularyKey("CI/CD Automation"), "ci/cd automation");
   assert.equal(
-    canonicalizeTopic("ai code assistants", {
+    canonicalizeVocabularyKey("ai code assistants", {
       "AI code assistants": "AI coding assistants",
     }),
     "ai coding assistants",

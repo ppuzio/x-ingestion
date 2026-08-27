@@ -22,6 +22,7 @@ import {
   renderObsidianNote,
   type ConceptVocabulary,
 } from "../obsidian/render.ts";
+import { sourceGapsForPost, type SourceGap, type SourceGapKind } from "../x/expand.ts";
 import {
   latestSnapshots,
   loadSnapshots,
@@ -30,8 +31,13 @@ import {
 import {
   exists,
   hydrateCachedRelevance,
+  hydrateCachedSourceContext,
+  hydrateCachedSynthesis,
+  mapWithConcurrency,
   modelDirectory,
   parseArgument,
+  reconcileGeneratedPreviewNotes,
+  readJson,
   requiredEnvironmentVariable,
   runMain,
   saveJson,
@@ -40,6 +46,53 @@ import {
 const previewRoot = resolve("data/obsidian-preview");
 const enrichmentRoot = resolve("data/enrichment");
 const execFileAsync = promisify(execFile);
+// ponytail: three requests keep default provider limits and media downloads calm;
+// expose a setting only if observed limits require tuning.
+const ENRICHMENT_CONCURRENCY = 3;
+
+const sourceGapTitles: Record<SourceGapKind, string> = {
+  missing_referenced_context: "Missing referenced context",
+  thread_marker_without_continuation: "Thread marker without continuation",
+  unexpanded_external_links: "Unexpanded external links",
+  visual_analysis_pending: "Visual analysis pending",
+  translation_pending: "Translation pending",
+  synthesis_pending: "Synthesis pending",
+};
+
+function reviewQueue(
+  posts: SavedPost[],
+  rendered: Array<{ id: string; filename: string; title: string }>,
+): string {
+  const gapsByPostId = new Map(posts.map((post) => [post.id, sourceGapsForPost(post)]));
+  const groups = new Map<SourceGapKind, Array<{ note: typeof rendered[number]; gap: SourceGap }>>();
+  for (const note of rendered) {
+    for (const gap of gapsByPostId.get(note.id) ?? []) {
+      const group = groups.get(gap.kind) ?? [];
+      group.push({ note, gap });
+      groups.set(gap.kind, group);
+    }
+  }
+  const total = [...groups.values()].reduce((count, entries) => count + entries.length, 0);
+  const lines = [
+    "# Review queue",
+    "",
+    "Actionable source gaps found during the latest preview build. This report never changes source data.",
+    "",
+    `- Posts needing attention: ${new Set([...groups.values()].flat().map(({ note }) => note.id)).size}`,
+    `- Gaps: ${total}`,
+  ];
+  for (const kind of Object.keys(sourceGapTitles) as SourceGapKind[]) {
+    const entries = groups.get(kind);
+    if (!entries?.length) continue;
+    lines.push("", `## ${sourceGapTitles[kind]} (${entries.length})`, "");
+    lines.push(
+      ...entries.map(
+        ({ note, gap }) => `- [[${note.filename.slice(0, -3)}|${note.title}]] — ${gap.message}`,
+      ),
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
 
 function extensionFor(url: string): string {
   const extension = extname(new URL(url).pathname).toLowerCase();
@@ -153,12 +206,12 @@ async function download(url: string, outputPath: string): Promise<void> {
     throw new Error(`Media download failed (${response.status}) for ${url}`);
   }
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, Buffer.from(await response.arrayBuffer()), { flag: "wx" });
+  await writeFile(outputPath, Buffer.from(await response.arrayBuffer()));
 }
 
 async function cachedJson<T>(path: string): Promise<T | undefined> {
   if (!(await exists(path))) return undefined;
-  return JSON.parse(await readFile(path, "utf8")) as T;
+  return readJson<T>(path);
 }
 
 function dataUrl(buffer: Buffer, path: string): string {
@@ -180,21 +233,38 @@ async function prepareMedia(
     // ponytail: inline article images remain remote until X exposes placement or
     // the preview proves a gallery is useful.
     if (item.role === "article") continue;
-    const analyzeVideo = Boolean(apiKey && item.mediaType !== "image" && item.url);
+    // Cached frame analysis must replay through the same video path even when
+    // this local render has no API key; otherwise delivery-only asset fields
+    // change and invalidate an otherwise matching synthesis cache.
+    const analyzeVideo = Boolean(
+      item.mediaType !== "image" && item.url && (apiKey || item.extraction),
+    );
     const sourceUrl = analyzeVideo ? item.url : item.mediaType === "image" ? item.url : item.previewUrl;
     if (!sourceUrl) continue;
 
     let analysisPath: string;
     if (analyzeVideo) {
-      const duration = await videoDuration(sourceUrl, item.durationMs);
+      const relativePath = `attachments/x/${post.id}/${item.mediaKey}.mp4`;
+      const outputPath = resolve(previewRoot, relativePath);
+      const localVideo = (await exists(outputPath)) ? outputPath : undefined;
+      let duration: number;
+      try {
+        duration = await videoDuration(localVideo ?? sourceUrl, item.durationMs);
+      } catch (error) {
+        if (!apiKey && item.extraction) {
+          console.warn(
+            `Media replay skipped for ${item.mediaKey}: ${error instanceof Error ? error.message : error}`,
+          );
+          continue;
+        }
+        throw error;
+      }
       item.durationMs = Math.round(duration * 1_000);
       const contactSheetPath = `attachments/x/${post.id}/${item.mediaKey}-contact-sheet.jpg`;
       analysisPath = resolve(previewRoot, contactSheetPath);
       item.contactSheetPath = contactSheetPath;
       item.archived = shouldArchiveVideo(item.durationMs);
       if (item.archived) {
-        const relativePath = `attachments/x/${post.id}/${item.mediaKey}.mp4`;
-        const outputPath = resolve(previewRoot, relativePath);
         await download(sourceUrl, outputPath);
         item.assetPath = relativePath;
         await createContactSheet(outputPath, analysisPath, item.durationMs);
@@ -297,6 +367,10 @@ async function prepareSynthesis(
   synthesisModel: string,
   refresh: boolean,
 ): Promise<void> {
+  if (!refresh) {
+    await hydrateCachedSynthesis([post], synthesisModel, enrichmentRoot);
+    if (post.enrichment) return;
+  }
   if (!apiKey) return;
   const cachePath = resolve(
     enrichmentRoot,
@@ -342,13 +416,6 @@ async function main(): Promise<void> {
   const snapshots = requestedSnapshot
     ? [resolve(requestedSnapshot)]
     : await latestSnapshots();
-  const allPosts = await loadSnapshots(snapshots);
-  const verificationModel =
-    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5.6-luna";
-  await hydrateCachedRelevance(allPosts, verificationModel);
-  const posts = postId ? allPosts.filter(({ id }) => id === postId) : allPosts;
-  if (postId && !posts.length) throw new Error(`Saved post ${postId} was not found`);
-  const apiKey = enrich ? requiredEnvironmentVariable("OPENROUTER_KEY") : undefined;
   const visionModel =
     process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
   const translationModel =
@@ -357,20 +424,39 @@ async function main(): Promise<void> {
   const synthesisModel =
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
     "qwen/qwen3-vl-32b-instruct";
-  const conceptVocabulary = JSON.parse(
-    await readFile(resolve("config/concepts.json"), "utf8"),
-  ) as ConceptVocabulary;
+  const allPosts = await loadSnapshots(snapshots);
+  await hydrateCachedSourceContext(allPosts);
+  const verificationModel =
+    process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5.6-luna";
+  await hydrateCachedRelevance(allPosts, verificationModel);
+  const posts = postId ? allPosts.filter(({ id }) => id === postId) : allPosts;
+  if (postId && !posts.length) throw new Error(`Saved post ${postId} was not found`);
+  const apiKey = enrich ? requiredEnvironmentVariable("OPENROUTER_KEY") : undefined;
+  const conceptVocabulary = await readJson<ConceptVocabulary>(resolve("config/concepts.json"));
 
   await mkdir(previewRoot, { recursive: true });
-  const rendered: Array<{ filename: string; title: string }> = [];
-  for (const post of posts) {
-    await prepareMedia(post, apiKey, visionModel);
-    await prepareTranslation(post, apiKey, translationModel);
-    await prepareSynthesis(post, apiKey, synthesisModel, refreshSynthesis);
-    const note = renderObsidianNote(post, conceptVocabulary);
-    await writeFile(resolve(previewRoot, note.filename), note.markdown, "utf8");
-    rendered.push(note);
-  }
+  const rendered = await mapWithConcurrency(
+    posts,
+    enrich ? ENRICHMENT_CONCURRENCY : 1,
+    async (post) => {
+      try {
+        await prepareMedia(post, apiKey, visionModel);
+      } catch (error) {
+        console.warn(
+          `Media preparation failed for ${post.id}: ${error instanceof Error ? error.message : error}`,
+        );
+      }
+      await prepareTranslation(post, apiKey, translationModel);
+      await prepareSynthesis(post, apiKey, synthesisModel, refreshSynthesis);
+      const note = renderObsidianNote(post, conceptVocabulary);
+      await writeFile(resolve(previewRoot, note.filename), note.markdown, "utf8");
+      return { id: post.id, ...note };
+    },
+  );
+  const removed = await reconcileGeneratedPreviewNotes(
+    previewRoot,
+    new Map(rendered.map(({ id, filename }) => [id, filename])),
+  );
 
   const normalizedPath = resolve(
     "data/normalized",
@@ -378,10 +464,13 @@ async function main(): Promise<void> {
   );
   await saveJson(normalizedPath, posts);
   if (!postId) {
+    await writeFile(resolve(previewRoot, "_Review_Queue.md"), reviewQueue(posts, rendered), "utf8");
     await writeFile(
       resolve(previewRoot, "_Index.md"),
       [
         "# X likes preview",
+        "",
+        "- [[_Review_Queue|Review queue]]",
         "",
         ...rendered.map(({ filename, title }) => `- [[${filename.slice(0, -3)}|${title}]]`),
         "",
@@ -393,6 +482,7 @@ async function main(): Promise<void> {
   console.log(
     `Generated ${posts.length} preview notes in ${previewRoot}${enrich ? " with configured enrichment" : ""}`,
   );
+  if (removed.length) console.log(`Removed ${removed.length} stale preview note(s)`);
   console.log(`Saved canonical records to ${normalizedPath}`);
 }
 

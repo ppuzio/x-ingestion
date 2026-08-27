@@ -7,6 +7,7 @@ import type {
   WebPageFragment,
 } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
+import { sourceGapsForPost } from "../x/expand.ts";
 
 export interface ConceptVocabulary {
   aliases: {
@@ -75,10 +76,6 @@ function wikilinks(values: string[]): string[] {
   return list(values.map((value) => `[[${safeName(value)}]]`));
 }
 
-export function normalizeTopicCase(value: string): string {
-  return vocabularyKey(value);
-}
-
 export function vocabularyKey(value: string): string {
   return collapseWhitespace(value).toLocaleLowerCase();
 }
@@ -93,14 +90,7 @@ export function canonicalizeVocabularyName(
   )?.[1] ?? value;
 }
 
-export function canonicalizeTopic(
-  value: string,
-  aliases: Record<string, string>,
-): string {
-  return normalizeTopicCase(canonicalizeVocabularyName(value, aliases));
-}
-
-export function canonicalizeConcept(
+export function canonicalizeVocabularyKey(
   value: string,
   aliases: Record<string, string>,
 ): string {
@@ -113,7 +103,7 @@ function canonicalizeTopics(
 ): string[] {
   const seen = new Set<string>();
   return values.flatMap((value) => {
-    const canonical = canonicalizeTopic(value, aliases);
+    const canonical = canonicalizeVocabularyKey(value, aliases);
     const key = vocabularyKey(canonical);
     if (seen.has(key)) return [];
     seen.add(key);
@@ -129,7 +119,7 @@ function renderConcepts(values: string[], vocabulary?: ConceptVocabulary): strin
   const seen = new Set<string>();
   const rendered: string[] = [];
   for (const original of values) {
-    const canonical = canonicalizeConcept(original, aliases);
+    const canonical = canonicalizeVocabularyKey(original, aliases);
     const key = vocabularyKey(canonical);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -243,6 +233,7 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     (item) => item.role !== "article" && item.mediaType !== "image",
   );
   const enrichment = post.enrichment;
+  const sourceGaps = sourceGapsForPost(post);
   const topics = enrichment
     ? canonicalizeTopics(enrichment.topics, vocabulary?.aliases.topic ?? {})
     : [];
@@ -274,6 +265,9 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
       ? [`video_archived: ${videos.every((item) => item.archived === true)}`]
       : []),
     `needs_synthesis: ${!enrichment}`,
+    ...(sourceGaps.length
+      ? ["source_gaps:", ...sourceGaps.map(({ kind }) => `  - ${kind}`)]
+      : []),
     ...(post.relevance
       ? [`relevance_status: ${JSON.stringify(post.relevance.verdict)}`]
       : []),
@@ -394,6 +388,10 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
         (link) => `- [${(link.title ?? link.url).replaceAll("]", "\\]")}](${link.url})`,
       ),
     );
+  }
+
+  if (sourceGaps.length) {
+    lines.push("", "## Source gaps", "", ...sourceGaps.map(({ message }) => `- ${message}`));
   }
 
   lines.push(

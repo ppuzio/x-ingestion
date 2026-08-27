@@ -109,6 +109,25 @@ export function requireVerificationEvidence(
   }
 }
 
+/** Cached verdicts are reusable only when their cited evidence is still present. */
+export function cachedVerificationForEvidence(
+  post: SavedPost,
+  cached: unknown,
+  citations: UrlCitation[],
+): RelevanceVerification | undefined {
+  try {
+    const verification = protectVerification(
+      post,
+      parseRelevanceVerification(cached, post.id),
+      citations,
+    );
+    requireVerificationEvidence(verification, citations);
+    return verification;
+  } catch {
+    return undefined;
+  }
+}
+
 export function protectIncompleteThread(
   post: SavedPost,
   verification: RelevanceVerification,

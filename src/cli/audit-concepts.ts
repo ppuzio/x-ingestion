@@ -1,15 +1,15 @@
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { createHash } from "node:crypto";
 
-import { object, string, strings } from "../json.ts";
+import { object, readJson, string, strings } from "../json.ts";
 import { requestStructuredJson } from "../llm/openrouter.ts";
 import {
-  canonicalizeConcept,
-  canonicalizeTopic,
+  canonicalizeVocabularyKey,
   type ConceptVocabulary,
   vocabularyKey,
 } from "../obsidian/render.ts";
+import { latestNormalizedSnapshot } from "../x/snapshots.ts";
 import {
   exists,
   modelDirectory,
@@ -40,18 +40,9 @@ interface Proposal {
 }
 
 async function latestNormalized(): Promise<string> {
-  const directory = resolve("data/normalized");
-  const files = (await readdir(directory)).filter((name) =>
-    name.endsWith(".normalized.json"),
-  );
-  files.sort((a, b) => {
-    const timestamp = (name: string): string =>
-      name.match(/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/)?.[0] ?? "";
-    return timestamp(a).localeCompare(timestamp(b));
-  });
-  const latest = files.at(-1);
-  if (!latest) throw new Error("No canonical snapshots found in data/normalized");
-  return resolve(directory, latest);
+  const snapshot = await latestNormalizedSnapshot();
+  if (!snapshot) throw new Error("No canonical snapshots found in data/normalized");
+  return snapshot;
 }
 
 async function loadVocabulary(): Promise<{
@@ -103,11 +94,8 @@ function collectInventory(input: unknown, vocabulary: ConceptVocabulary): {
         .map((value) => value.trim())
         .filter(Boolean)
         .map((name) => {
-          if (category === "topic") {
-            return canonicalizeTopic(name, vocabulary.aliases.topic);
-          }
-          if (category === "concept") {
-            return canonicalizeConcept(name, vocabulary.aliases.concept);
+          if (category === "topic" || category === "concept") {
+            return canonicalizeVocabularyKey(name, vocabulary.aliases[category]);
           }
           return name;
         });
@@ -298,7 +286,7 @@ async function main(): Promise<void> {
   const snapshot = resolve(requestedSnapshot ?? (await latestNormalized()));
   const { vocabulary, fingerprint: vocabularyFingerprint } = await loadVocabulary();
   const collected = collectInventory(
-    JSON.parse(await readFile(snapshot, "utf8")) as unknown,
+    await readJson(snapshot),
     vocabulary,
   );
   const { synthesisVersion, includedPostCount, pendingPostIds } = collected;
@@ -328,7 +316,7 @@ async function main(): Promise<void> {
 
   let proposals: Proposal[];
   if (await exists(cachePath)) {
-    proposals = parseProposals(JSON.parse(await readFile(cachePath, "utf8")), items);
+    proposals = parseProposals(await readJson(cachePath), items);
   } else {
     const result = await requestStructuredJson(
       apiKey,

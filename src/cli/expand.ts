@@ -3,6 +3,7 @@ import {
   externalUrlsForPost,
   expandExternalLinks,
   expandThreadsAndContexts,
+  needsRelationshipContext,
   shouldExpandThread,
 } from "../x/expand.ts";
 import { parseLimitArgument, requiredEnvironmentVariable, runMain } from "./util.ts";
@@ -15,7 +16,7 @@ async function main(): Promise<void> {
   if (dryRun) {
     const contextCandidates = initialPosts.reduce(
       (count, post) => count + post.relationships.filter(
-        ({ type, text }) => type === "replied_to" && !text,
+        needsRelationshipContext,
       ).length,
       0,
     );
