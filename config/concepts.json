@@ -1,17 +1,15 @@
 {
   "aliases": {
     "topic": {
-      "agent-based computing": "AI agents",
+      "agent-based computing": "ai agents",
       "software engineering": "software development",
       "code maintenance": "code quality",
-      "workflow management": "Productivity Automation",
-      "AI agent orchestration": "AI Agent Orchestration",
-      "AI coding agents": "AI Coding Agents",
-      "AI code assistants": "AI coding assistants",
-      "ai-assisted development": "AI-assisted software development",
+      "workflow management": "productivity automation",
+      "ai code assistants": "ai coding assistants",
+      "ai-assisted development": "ai-assisted software development",
       "systems design": "system design",
-      "AI agent integrations": "AI agent integration",
-      "CSS animations": "CSS animation",
+      "ai agent integrations": "ai agent integration",
+      "css animations": "css animation",
       "investment strategy": "investment strategies"
     },
     "concept": {

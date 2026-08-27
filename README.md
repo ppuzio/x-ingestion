@@ -313,8 +313,8 @@ generation applies this registry only while rendering Markdown: aliases are
 deduplicated, rejected graph nodes remain plain text, and the original v4
 canonical enrichment is preserved unchanged. Topic comparison is
 case-insensitive, as is concept matching: capitalization-only variants never
-need aliases. Ordinary topic words render lowercase while uppercase acronyms
-are preserved, so `AI Agents` and `AI agents` become one topic.
+need aliases. Topics and concepts are saved in lowercase; technologies and
+people retain their source casing.
 
 ## Checks
 
