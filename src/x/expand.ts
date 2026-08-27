@@ -29,6 +29,19 @@ export interface ExpansionSummary {
   failures: string[];
 }
 
+export type SourceGapKind =
+  | "missing_referenced_context"
+  | "thread_marker_without_continuation"
+  | "unexpanded_external_links"
+  | "visual_analysis_pending"
+  | "translation_pending"
+  | "synthesis_pending";
+
+export interface SourceGap {
+  kind: SourceGapKind;
+  message: string;
+}
+
 function timestamp(now: Date): string {
   return now.toISOString().slice(0, 19).replaceAll(":", "-");
 }
@@ -89,6 +102,64 @@ export function needsRelationshipContext(
 ): boolean {
   if (!["replied_to", "quoted"].includes(relationship.type)) return false;
   return !relationship.text?.trim() || onlyUrls(relationship.text);
+}
+
+/** Actionable gaps only; ordinary visual-model uncertainty stays with its media. */
+export function sourceGapsForPost(post: SavedPost): SourceGap[] {
+  const gaps: SourceGap[] = [];
+  const missingContext = post.relationships.filter(needsRelationshipContext).length;
+  if (missingContext) {
+    gaps.push({
+      kind: "missing_referenced_context",
+      message: `${missingContext} referenced post${missingContext === 1 ? "" : "s"} lacks readable captured context.`,
+    });
+  }
+  if (shouldExpandThread(post) && !post.relationships.some(({ type }) => type === "thread_continuation")) {
+    gaps.push({
+      kind: "thread_marker_without_continuation",
+      message: "The post signals a thread, but no same-author continuation was captured.",
+    });
+  }
+  const capturedUrls = new Set(
+    post.fragments.flatMap((fragment) =>
+      fragment.kind === "web_page" ? [fragment.sourceUrl, fragment.url] : [],
+    ),
+  );
+  const unexpandedLinks = externalUrlsForPost(post).filter((url) => !capturedUrls.has(url)).length;
+  if (unexpandedLinks) {
+    gaps.push({
+      kind: "unexpanded_external_links",
+      message: `${unexpandedLinks} external link${unexpandedLinks === 1 ? " has" : "s have"} not been captured as readable page text.`,
+    });
+  }
+  const pendingVisualAnalysis = post.fragments.filter(
+    (fragment) =>
+      fragment.kind === "media" &&
+      fragment.role === "attachment" &&
+      !fragment.extraction,
+  ).length;
+  if (pendingVisualAnalysis) {
+    gaps.push({
+      kind: "visual_analysis_pending",
+      message: `${pendingVisualAnalysis} attached media item${pendingVisualAnalysis === 1 ? "" : "s"} still needs visual analysis.`,
+    });
+  }
+  const text = post.fragments.find(
+    (fragment): fragment is TextFragment => fragment.kind === "text",
+  );
+  if (text?.language && !["en", "und", "zxx"].includes(text.language) && !text.translation) {
+    gaps.push({
+      kind: "translation_pending",
+      message: `English translation is pending for the ${text.language} source text.`,
+    });
+  }
+  if (!post.enrichment) {
+    gaps.push({
+      kind: "synthesis_pending",
+      message: "Post synthesis is pending.",
+    });
+  }
+  return gaps;
 }
 
 export async function captureContextForPost(

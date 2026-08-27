@@ -84,32 +84,36 @@ export async function requestStructuredJson(
   schema: JsonObject,
   options: StructuredJsonOptions = {},
 ): Promise<{ parsed: unknown; rawResponse: unknown; citations: UrlCitation[] }> {
-  const rawResponse = await requestOpenRouter(apiKey, {
-    model,
-    ...modelOptions(model, options.reasoningEffort),
-    max_tokens: options.maxTokens ?? 16_000,
-    messages: [{ role: "user", content }],
-    response_format: {
-      type: "json_schema",
-      json_schema: { name: schemaName, strict: true, schema },
-    },
-    provider: { require_parameters: true },
-  }, options.timeoutMs);
-  const message = responseMessage(rawResponse);
-  const messageContent = message?.content;
-  if (typeof messageContent !== "string") {
-    throw new Error("OpenRouter response did not contain textual JSON output");
+  let error = new Error("OpenRouter model output was not valid JSON");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const rawResponse = await requestOpenRouter(apiKey, {
+      model,
+      ...modelOptions(model, options.reasoningEffort),
+      max_tokens: options.maxTokens ?? 16_000,
+      messages: [{ role: "user", content }],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: schemaName, strict: true, schema },
+      },
+      provider: { require_parameters: true },
+    }, options.timeoutMs);
+    const message = responseMessage(rawResponse);
+    const messageContent = message?.content;
+    if (typeof messageContent !== "string") {
+      error = new Error("OpenRouter response did not contain textual JSON output");
+      continue;
+    }
+    try {
+      return {
+        parsed: JSON.parse(messageContent),
+        rawResponse,
+        citations: parseUrlCitations(message?.annotations),
+      };
+    } catch {
+      error = new Error("OpenRouter model output was not valid JSON");
+    }
   }
-
-  try {
-    return {
-      parsed: JSON.parse(messageContent),
-      rawResponse,
-      citations: parseUrlCitations(message?.annotations),
-    };
-  } catch {
-    throw new Error("OpenRouter model output was not valid JSON");
-  }
+  throw error;
 }
 
 export async function requestWebSearch(

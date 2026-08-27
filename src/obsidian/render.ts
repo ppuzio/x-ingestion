@@ -7,6 +7,7 @@ import type {
   WebPageFragment,
 } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
+import { sourceGapsForPost } from "../x/expand.ts";
 
 export interface ConceptVocabulary {
   aliases: {
@@ -243,6 +244,7 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     (item) => item.role !== "article" && item.mediaType !== "image",
   );
   const enrichment = post.enrichment;
+  const sourceGaps = sourceGapsForPost(post);
   const topics = enrichment
     ? canonicalizeTopics(enrichment.topics, vocabulary?.aliases.topic ?? {})
     : [];
@@ -274,6 +276,9 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
       ? [`video_archived: ${videos.every((item) => item.archived === true)}`]
       : []),
     `needs_synthesis: ${!enrichment}`,
+    ...(sourceGaps.length
+      ? ["source_gaps:", ...sourceGaps.map(({ kind }) => `  - ${kind}`)]
+      : []),
     ...(post.relevance
       ? [`relevance_status: ${JSON.stringify(post.relevance.verdict)}`]
       : []),
@@ -394,6 +399,10 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
         (link) => `- [${(link.title ?? link.url).replaceAll("]", "\\]")}](${link.url})`,
       ),
     );
+  }
+
+  if (sourceGaps.length) {
+    lines.push("", "## Source gaps", "", ...sourceGaps.map(({ message }) => `- ${message}`));
   }
 
   lines.push(

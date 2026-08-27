@@ -212,8 +212,12 @@ These directories are generated, gitignored, and separate from any real
 Obsidian vault. Post synthesis is cached by model, prompt, and source
 fingerprint, while media extraction is cached by model and media ID, so
 rerunning the same or an overlapping snapshot does not repeat successful paid
-calls. Media is also archived by media ID; normalization and Markdown
-rendering may run again because they are local and deterministic. Root screenshots are
+calls. `npm run preview` reuses matching cached translation, vision, and
+synthesis results without making paid calls. It also reconciles generated
+notes by post ID, removing stale title-based filenames only inside
+`data/obsidian-preview/`; a real vault is never touched. Media is also archived
+by media ID; normalization and Markdown rendering may run again because they
+are local and deterministic. Root screenshots are
 archived and analyzed. Attached videos up to 10 minutes are archived at a
 moderate resolution, sampled into a six-frame contact sheet with `ffmpeg`, and
 visually analyzed. Longer videos are not downloaded: `ffmpeg` seeks to six
@@ -223,6 +227,12 @@ captured external HTML is rendered as a linked page,
 while inline article media remains referenced until reliable placement can be
 determined. X's `zxx` label is retained as `source_language` for link-only
 wrapper posts and is not applied to the linked article body.
+
+`data/obsidian-preview/_Review_Queue.md` groups actionable gaps from the last
+full preview build: uncaptured referenced context, marked threads without a
+captured continuation, external pages not yet captured, pending visual or
+translation work, and pending synthesis. Model uncertainty remains beside its
+specific media item rather than flooding the queue.
 
 ## Ask the collection
 

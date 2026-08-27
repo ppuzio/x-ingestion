@@ -211,6 +211,7 @@ test("normalizes mixed X content into replayable fragments and renders it", () =
   assert.match(note.markdown, /needs_translation: true/);
   assert.match(note.markdown, /needs_vision: true/);
   assert.match(note.markdown, /needs_synthesis: false/);
+  assert.match(note.markdown, /## Source gaps/);
   assert.match(note.markdown, /\[\[context engineering\]\]/);
   assert.equal(note.markdown.match(/\[\[context engineering\]\]/g)?.length, 1);
   assert.match(note.markdown, /Article body/);

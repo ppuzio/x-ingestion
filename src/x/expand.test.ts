@@ -5,6 +5,7 @@ import type { SavedPost } from "../model.ts";
 import {
   externalUrlsForPost,
   needsRelationshipContext,
+  sourceGapsForPost,
   shouldExpandThread,
 } from "./expand.ts";
 
@@ -71,5 +72,42 @@ test("fetches missing or URL-only quoted context without crawling ordinary quote
       text: "A substantive quoted post",
     }),
     false,
+  );
+});
+
+test("reports actionable source gaps without treating ordinary model uncertainty as a gap", () => {
+  const candidate = post("Read this thread 🧵", [
+    {
+      type: "replied_to",
+      postId: "2",
+      url: "https://x.com/i/web/status/2",
+    },
+  ]);
+  candidate.fragments.push(
+    { kind: "link", source: "post", url: "https://example.com/article" },
+    {
+      kind: "media",
+      mediaKey: "3_image",
+      mediaType: "image",
+      role: "attachment",
+      extraction: {
+        kind: "screenshot",
+        language: "en",
+        verbatimText: "Readable text",
+        visualSummary: "A readable screenshot.",
+        keyFacts: [],
+        uncertainties: ["The exact font is unknown."],
+        model: "test/model",
+      },
+    },
+  );
+  assert.deepEqual(
+    sourceGapsForPost(candidate).map(({ kind }) => kind),
+    [
+      "missing_referenced_context",
+      "thread_marker_without_continuation",
+      "unexpanded_external_links",
+      "synthesis_pending",
+    ],
   );
 });

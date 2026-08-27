@@ -1,5 +1,5 @@
-import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { access, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 
 import {
   parseRelevanceAssessments,
@@ -10,7 +10,11 @@ import {
   parseRelevanceVerification,
   RELEVANCE_VERIFICATION_VERSION,
 } from "../llm/verify-relevance.ts";
-import type { ImageExtraction, SavedPost, Translation } from "../model.ts";
+import {
+  synthesisFingerprint,
+  SYNTHESIS_PROMPT_VERSION,
+} from "../llm/enrich-post.ts";
+import type { ImageExtraction, PostEnrichment, SavedPost, Translation } from "../model.ts";
 import { collapseWhitespace, stripUrls } from "../text.ts";
 
 let relevanceConfigPromise: Promise<{
@@ -69,6 +73,48 @@ export async function saveJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function generatedPreviewPostId(markdown: string): string | undefined {
+  const frontmatter = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+  if (!frontmatter || !/^type: x-capture$/m.test(frontmatter) || !/^source: x$/m.test(frontmatter)) {
+    return undefined;
+  }
+  const rawPostId = frontmatter.match(/^post_id: (.+)$/m)?.[1];
+  if (!rawPostId) return undefined;
+  try {
+    const postId = JSON.parse(rawPostId);
+    return typeof postId === "string" && /^\d+$/.test(postId) ? postId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Deletes only superseded generated note names for posts rendered in this run.
+ * Files for absent posts and anything outside the project's x-capture format
+ * are left alone, so a preview rebuild cannot erase a user-owned note.
+ */
+export async function reconcileGeneratedPreviewNotes(
+  previewDirectory: string,
+  expectedFilenameByPostId: ReadonlyMap<string, string>,
+): Promise<string[]> {
+  const expected = new Map(
+    [...expectedFilenameByPostId].map(([postId, filename]) => [postId, basename(filename)]),
+  );
+  const removed: string[] = [];
+  for (const entry of await readdir(previewDirectory, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const path = resolve(previewDirectory, entry.name);
+    const postId = generatedPreviewPostId(await readFile(path, "utf8"));
+    const expectedFilename = postId ? expected.get(postId) : undefined;
+    if (!expectedFilename || entry.name === expectedFilename || !entry.name.endsWith(`--${postId}.md`)) {
+      continue;
+    }
+    await unlink(path);
+    removed.push(entry.name);
+  }
+  return removed.sort();
+}
+
 export async function hydrateCachedSourceContext(
   posts: SavedPost[],
   enrichmentRoot = resolve("data/enrichment"),
@@ -113,6 +159,31 @@ export async function hydrateCachedSourceContext(
           break;
         }
       }
+    }
+  }
+}
+
+/** Reuses an unchanged synthesis during a local, no-LLM preview rebuild. */
+export async function hydrateCachedSynthesis(
+  posts: SavedPost[],
+  model: string,
+  enrichmentRoot = resolve("data/enrichment"),
+): Promise<void> {
+  const root = resolve(
+    enrichmentRoot,
+    "synthesis",
+    SYNTHESIS_PROMPT_VERSION,
+    modelDirectory(model),
+  );
+  for (const post of posts) {
+    const path = resolve(root, `${post.id}.json`);
+    if (!(await exists(path))) continue;
+    const cached = JSON.parse(await readFile(path, "utf8")) as {
+      enrichment?: PostEnrichment;
+      sourceHash?: string;
+    };
+    if (cached.enrichment && cached.sourceHash === synthesisFingerprint(post)) {
+      post.enrichment = cached.enrichment;
     }
   }
 }
@@ -176,6 +247,26 @@ export function parseLimitArgument(argv: string[]): number {
   const limit = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
   if (!(limit > 0)) throw new Error("--limit must be a positive integer");
   return limit;
+}
+
+/** Runs independent work with bounded concurrency while preserving input order. */
+export async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  work: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await work(values[index]!, index);
+      }
+    }),
+  );
+  return results;
 }
 
 /**
