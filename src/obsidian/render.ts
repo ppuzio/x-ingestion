@@ -34,6 +34,10 @@ function markdownText(value: string): string {
   return value.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function frontmatterString(value: string): string {
+  return JSON.stringify(value).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e");
+}
+
 function titleFor(post: SavedPost): string {
   const article = post.fragments.find(
     (fragment): fragment is ArticleFragment => fragment.kind === "article",
@@ -53,17 +57,11 @@ function titleFor(post: SavedPost): string {
   ).slice(0, 100);
 }
 
-function filenameFor(title: string, id: string): string {
-  const filenamePart = (value: string, limit = Number.POSITIVE_INFINITY) => {
-    // Quotes drop out so "author's" reads as "authors"; everything else outside
-    // the allowlist — including every character safeName guards — collapses to
-    // one underscore.
-    const sanitized = value
-      .replace(/[\u0060\u0027\u2019]/g, "")
-      .replace(/[^\p{L}\p{N}_.-]+/gu, "_");
-    return sanitized.slice(0, limit).replace(/_+$/g, "");
-  };
-  return `${filenamePart(title, 90) || "X_post"}--${filenamePart(id)}.md`;
+function postStem(id: string): string {
+  if (!/^[\p{L}\p{N}_.-]+$/u.test(id)) {
+    throw new Error(`Post id ${JSON.stringify(id)} is not safe for a note path`);
+  }
+  return `x-${id}`;
 }
 
 function list(values: string[]): string[] {
@@ -196,8 +194,10 @@ function renderMedia(media: MediaFragment, index: number): string[] {
 
 export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabulary): {
   filename: string;
+  reviewFilename: string;
   title: string;
   markdown: string;
+  reviewMarkdown: string;
 } {
   const text = textFragment(post);
   const title = titleFor(post);
@@ -237,11 +237,16 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
   const topics = enrichment
     ? canonicalizeTopics(enrichment.topics, vocabulary?.aliases.topic ?? {})
     : [];
+  const stem = postStem(post.id);
+  const filename = `Sources/${stem}.md`;
+  const reviewFilename = `Reviews/${stem}.md`;
   const lines = [
     "---",
     "type: x-capture",
     "source: x",
     `post_id: ${JSON.stringify(post.id)}`,
+    `title: ${frontmatterString(title)}`,
+    `review: '[[${reviewFilename.slice(0, -3)}]]'`,
     `source_url: ${JSON.stringify(post.url)}`,
     `author_id: ${JSON.stringify(post.author.id)}`,
     ...(post.author.username
@@ -274,7 +279,6 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     ...(topics.length
       ? ["topics:", ...topics.map((value) => `  - ${JSON.stringify(value)}`)]
       : []),
-    "status: unread",
     "---",
     "",
     `# ${markdownText(title)}`,
@@ -471,5 +475,28 @@ export function renderObsidianNote(post: SavedPost, vocabulary?: ConceptVocabula
     "",
   );
 
-  return { filename: filenameFor(title, post.id), title, markdown: lines.join("\n") };
+  const reviewMarkdown = [
+    "---",
+    "type: x-review",
+    `post_id: ${JSON.stringify(post.id)}`,
+    "status: unread",
+    `source: '[[${filename.slice(0, -3)}]]'`,
+    `title: ${frontmatterString(title)}`,
+    "---",
+    "",
+    `# ${markdownText(title)}`,
+    "",
+    "## Notes",
+    "",
+    "## Decision",
+    "",
+  ].join("\n");
+
+  return {
+    filename,
+    reviewFilename,
+    title,
+    markdown: lines.join("\n"),
+    reviewMarkdown,
+  };
 }

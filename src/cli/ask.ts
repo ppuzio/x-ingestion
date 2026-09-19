@@ -11,7 +11,7 @@ function queryFromArguments(arguments_: string[]): string {
     .filter((argument) => !argument.startsWith("--"))
     .join(" ")
     .trim();
-  if (!query) throw new Error('Usage: npm run ask -- "your question" [--limit=80]');
+  if (!query) throw new Error('Usage: npm run ask -- "your question" [--limit=12]');
   return query;
 }
 
@@ -19,10 +19,10 @@ async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const query = queryFromArguments(arguments_);
   const requestedLimit = parseLimitArgument(arguments_);
-  const candidateLimit = Number.isFinite(requestedLimit) ? requestedLimit : 80;
+  const candidateLimit = Number.isFinite(requestedLimit) ? requestedLimit : 12;
   const posts = await loadLatestPosts();
-  const cards = searchPosts(posts, query, candidateLimit);
-  if (!cards.length) throw new Error("No canonical posts are available to query");
+  const cards = searchPosts(posts, query, candidateLimit).filter(({ score }) => score > 0);
+  if (!cards.length) throw new Error("No matching canonical posts are available to query");
 
   const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const model =

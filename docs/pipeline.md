@@ -20,6 +20,10 @@ The separate query path is:
 
 `normalized JSON` → `npm run ask` → `LLM recommendations with source URLs`
 
+Agents can instead use `npm run --silent search -- "query"` followed by
+`npm run --silent read-post -- <id>` to retrieve full evidence without model
+calls. See [the agent workflow](agent-workflow.md).
+
 ## Stages
 
 | Stage | Command | Reads | Produces |
@@ -50,3 +54,7 @@ Raw snapshots are the replay point. Expansion and enrichment add separate
 captures or caches; they do not rewrite the original X response. The latest
 normalized snapshot is the machine-readable source for querying, while the
 Markdown directory is a human-facing preview that can be copied into a vault.
+Generated captures live in `Sources/` with stable post-ID filenames. Human
+status, notes, and decisions live in create-once `Reviews/` notes. `Library.base`
+provides native Obsidian views over both; rebuilds leave reviews and legacy
+root notes untouched.

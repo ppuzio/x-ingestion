@@ -62,3 +62,26 @@ test("parseKnowledgeAnswer rejects answers with no supported idea sources", () =
     /no ideas with valid source references/,
   );
 });
+
+test("an answer may abstain when candidate evidence is insufficient", () => {
+  assert.deepEqual(parseKnowledgeAnswer({ overview: "Insufficient evidence.", ideas: [], caveats: ["No supporting passage."] }, [card("1")]).ideas, []);
+});
+
+test("answer request retains deep evidence and source gaps beyond compact excerpts", async () => {
+  const { answerKnowledgeQuery } = await import("./query.ts");
+  const originalFetch = globalThis.fetch;
+  let sent = "";
+  globalThis.fetch = async (_url, options) => {
+    sent = String(options?.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ overview: "Insufficient evidence.", ideas: [], caveats: [] }) } }] }), { status: 200 });
+  };
+  try {
+    const candidate = card("1");
+    candidate.evidence = [{ location: "fragments[1], chars 7000-8000", text: "a".repeat(800) + "DEEP_EVIDENCE" }];
+    candidate.sourceGaps = [{ kind: "synthesis_pending", message: "Pending synthesis" }];
+    await answerKnowledgeQuery("test", "test/model", "evidence", [candidate]);
+    assert.ok(sent.includes("DEEP_EVIDENCE"));
+    assert.ok(sent.includes("Pending synthesis"));
+    assert.ok(sent.includes("7000-8000"));
+  } finally { globalThis.fetch = originalFetch; }
+});

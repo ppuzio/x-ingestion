@@ -1,5 +1,5 @@
-import { access, readFile, readdir, unlink } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import {
   parseRelevanceAssessments,
@@ -61,46 +61,27 @@ export async function exists(path: string): Promise<boolean> {
 
 export { readJson, writeJson as saveJson };
 
-function generatedPreviewPostId(markdown: string): string | undefined {
-  const frontmatter = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
-  if (!frontmatter || !/^type: x-capture$/m.test(frontmatter) || !/^source: x$/m.test(frontmatter)) {
-    return undefined;
-  }
-  const rawPostId = frontmatter.match(/^post_id: (.+)$/m)?.[1];
-  if (!rawPostId) return undefined;
-  try {
-    const postId = JSON.parse(rawPostId);
-    return typeof postId === "string" && /^\d+$/.test(postId) ? postId : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Deletes only superseded generated note names for posts rendered in this run.
- * Files for absent posts and anything outside the project's x-capture format
- * are left alone, so a preview rebuild cannot erase a user-owned note.
- */
-export async function reconcileGeneratedPreviewNotes(
+export async function writePreviewNote(
   previewDirectory: string,
-  expectedFilenameByPostId: ReadonlyMap<string, string>,
-): Promise<string[]> {
-  const expected = new Map(
-    [...expectedFilenameByPostId].map(([postId, filename]) => [postId, basename(filename)]),
-  );
-  const removed: string[] = [];
-  for (const entry of await readdir(previewDirectory, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-    const path = resolve(previewDirectory, entry.name);
-    const postId = generatedPreviewPostId(await readFile(path, "utf8"));
-    const expectedFilename = postId ? expected.get(postId) : undefined;
-    if (!expectedFilename || entry.name === expectedFilename || !entry.name.endsWith(`--${postId}.md`)) {
-      continue;
-    }
-    await unlink(path);
-    removed.push(entry.name);
+  note: {
+    filename: string;
+    markdown: string;
+    reviewFilename: string;
+    reviewMarkdown: string;
+  },
+): Promise<void> {
+  const sourcePath = resolve(previewDirectory, note.filename);
+  const reviewPath = resolve(previewDirectory, note.reviewFilename);
+  await Promise.all([
+    mkdir(dirname(sourcePath), { recursive: true }),
+    mkdir(dirname(reviewPath), { recursive: true }),
+  ]);
+  await writeFile(sourcePath, note.markdown, "utf8");
+  try {
+    await writeFile(reviewPath, note.reviewMarkdown, { encoding: "utf8", flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
-  return removed.sort();
 }
 
 export async function hydrateCachedSourceContext(

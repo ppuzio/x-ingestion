@@ -33,6 +33,8 @@ function compactCard(card: SearchCard): Omit<SearchCard, "score"> {
     people: card.people.slice(0, 4),
     claims: card.claims.slice(0, 4).map((claim) => shorten(claim, 300)),
     sourceExcerpt: shorten(card.sourceExcerpt, 600),
+    ...(card.evidence ? { evidence: card.evidence } : {}),
+    ...(card.sourceGaps ? { sourceGaps: card.sourceGaps } : {}),
     ...(card.freshness
       ? {
           freshness: {
@@ -99,7 +101,7 @@ export function parseKnowledgeAnswer(value: unknown, cards: SearchCard[]): Knowl
     return [{ name, whatItIs, whyItMayHelp, firstExperiment, sourcePostIds: validSourceIds }];
   });
 
-  if (!ideas.length) {
+  if (rawIdeas.length && !ideas.length) {
     throw new Error("Knowledge query output contained no ideas with valid source references");
   }
   const warnings = [
@@ -141,6 +143,10 @@ export async function answerKnowledgeQuery(
           "Respect a candidate's freshness verdict and current guidance; do not present superseded advice as current.",
           "Use sourcePostIds for citations only; never print raw post-ID lists or internal IDs in the prose fields.",
           "Before returning, proofread every prose field for normal word spacing, punctuation, and grammar. Never concatenate adjacent words.",
+          "Evidence contains selected source windows with locations in the full record; it is incomplete, not the entire post.",
+          "Use evidence passages rather than generated claims to justify recommendations. Mention the supporting section or passage in your explanation.",
+          "Translations and media interpretations inside fragments are model-derived; quoted relationships are separate sources, not the focal author speaking.",
+          "Respect sourceGaps: absent context is not negative evidence. If nothing supports a recommendation, return an empty ideas array and explain in caveats.",
           "If the evidence is weak or the query is underspecified, say so in caveats.",
           `\nUSER QUERY:\n${query}`,
           `\nVALID SOURCE POST IDS:\n${cards.map((card) => card.postId).join(", ")}`,
@@ -156,7 +162,7 @@ export async function answerKnowledgeQuery(
         overview: { type: "string" },
         ideas: {
           type: "array",
-          minItems: 1,
+          minItems: 0,
           maxItems: 8,
           items: {
             type: "object",

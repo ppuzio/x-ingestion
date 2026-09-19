@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 
 import type { SavedPost } from "../model.ts";
 import { synthesisFingerprint, SYNTHESIS_PROMPT_VERSION } from "../llm/enrich-post.ts";
+import { renderObsidianNote } from "../obsidian/render.ts";
 import {
   applyRelevanceOverride,
   applyEnvAssignments,
@@ -21,8 +22,8 @@ import {
   parseArgument,
   parseArguments,
   parseLimitArgument,
-  reconcileGeneratedPreviewNotes,
   reportTitle,
+  writePreviewNote,
 } from "./util.ts";
 
 const execFileAsync = promisify(execFile);
@@ -128,28 +129,44 @@ test("lists dated cache directories newest first and tolerates a missing root", 
   }
 });
 
-test("removes only stale generated preview names for rendered posts", async () => {
+test("rewrites captures by stable id without changing or deleting personal notes", async () => {
   const directory = await mkdtemp(resolve(tmpdir(), "x-ingestion-preview-"));
-  const generated = (postId: string) => `---\ntype: x-capture\nsource: x\npost_id: ${JSON.stringify(postId)}\n---\n`;
+  const post = (text: string): SavedPost => ({
+    id: "1",
+    url: "https://x.com/author/status/1",
+    capturedAt: "2026-01-02T00:00:00Z",
+    author: { id: "20", username: "author" },
+    fragments: [{ kind: "text", source: "post", text }],
+    relationships: [],
+    captureMethods: ["like"],
+    rawSources: [],
+  });
   try {
-    await Promise.all([
-      writeFile(resolve(directory, "Old_title--1.md"), generated("1"), "utf8"),
-      writeFile(resolve(directory, "New_title--1.md"), generated("1"), "utf8"),
-      writeFile(resolve(directory, "Old_title--2.md"), generated("2"), "utf8"),
-      writeFile(resolve(directory, "Manual--1.md"), "# Manual note\n", "utf8"),
-      writeFile(resolve(directory, "Not_generated--1.md"), "---\npost_id: \"1\"\n---\n", "utf8"),
-    ]);
+    const first = renderObsidianNote(post("Original title"));
+    await writePreviewNote(directory, first);
+    const editedReview = first.reviewMarkdown
+      .replace("status: unread", "status: adopted")
+      .replace("## Notes\n", "## Notes\n\nKeep this verbatim.\n")
+      .replace("## Decision\n", "## Decision\n\nUse the idea.\n");
+    await writeFile(resolve(directory, first.reviewFilename), editedReview, "utf8");
+    await writeFile(resolve(directory, "Original_title--1.md"), "# Legacy personal edits\n", "utf8");
+    await writeFile(resolve(directory, "Reviews", "personal.md"), "# Personal\n", "utf8");
 
-    assert.deepEqual(
-      await reconcileGeneratedPreviewNotes(directory, new Map([["1", "New_title--1.md"]])),
-      ["Old_title--1.md"],
+    const changed = renderObsidianNote(post("Changed title"));
+    assert.equal(changed.filename, first.filename);
+    assert.equal(changed.reviewFilename, first.reviewFilename);
+    await writePreviewNote(directory, changed);
+
+    assert.match(await readFile(resolve(directory, changed.filename), "utf8"), /Changed title/);
+    assert.equal(await readFile(resolve(directory, changed.reviewFilename), "utf8"), editedReview);
+    assert.equal(
+      await readFile(resolve(directory, "Original_title--1.md"), "utf8"),
+      "# Legacy personal edits\n",
     );
-    assert.deepEqual((await readdir(directory)).sort(), [
-      "Manual--1.md",
-      "New_title--1.md",
-      "Not_generated--1.md",
-      "Old_title--2.md",
-    ]);
+    assert.equal(
+      await readFile(resolve(directory, "Reviews", "personal.md"), "utf8"),
+      "# Personal\n",
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

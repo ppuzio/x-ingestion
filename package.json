@@ -18,8 +18,11 @@
     "verify:relevance": "node --env-file-if-exists=.env src/cli/verify-relevance.ts",
     "audit:concepts": "node --env-file-if-exists=.env src/cli/audit-concepts.ts",
     "ask": "node --env-file-if-exists=.env src/cli/ask.ts",
+    "search": "node src/cli/search.ts",
+    "read-post": "node src/cli/read-post.ts",
+    "eval:retrieval": "node src/cli/evaluate-retrieval.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/**/*.test.ts",
+    "test": "node --test src/*.test.ts src/**/*.test.ts",
     "check": "npm run typecheck && npm test"
   },
   "devDependencies": {

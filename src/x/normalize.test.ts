@@ -382,7 +382,7 @@ test("drops media whose key could escape the attachments directory", () => {
   );
 });
 
-test("keeps a multi-line article title on one line in the note and filename", () => {
+test("keeps a multi-line article title on one line and uses stable note paths", () => {
   const [post] = normalizeLikesResponse(
     {
       data: [
@@ -405,12 +405,17 @@ test("keeps a multi-line article title on one line in the note and filename", ()
 
   const note = renderObsidianNote(post);
   assert.equal(note.title, "Line one line two");
-  assert.equal(note.filename, "Line_one_line_two--10.md");
-  assert.doesNotMatch(note.filename, /\s/);
+  assert.equal(note.filename, "Sources/x-10.md");
+  assert.equal(note.reviewFilename, "Reviews/x-10.md");
   assert.match(note.markdown, /\n# Line one line two\n/);
+  assert.match(note.markdown, /title: "Line one line two"/);
+  assert.match(note.markdown, /review: '\[\[Reviews\/x-10\]\]'/);
+  assert.doesNotMatch(note.markdown, /\nstatus: unread\n/);
+  assert.match(note.reviewMarkdown, /\nstatus: unread\n/);
+  assert.match(note.reviewMarkdown, /source: '\[\[Sources\/x-10\]\]'/);
 });
 
-test("removes apostrophes from link-safe note filenames", () => {
+test("keeps punctuation in the title without putting it in the stable note path", () => {
   const [post] = normalizeLikesResponse(
     {
       data: [
@@ -429,8 +434,7 @@ test("removes apostrophes from link-safe note filenames", () => {
 
   const note = renderObsidianNote(post);
   assert.equal(note.title, "Author's `guide` (quick)");
-  assert.equal(note.filename, "Authors_guide_quick--12.md");
-  assert.doesNotMatch(note.filename, /[^\p{L}\p{N}_.-]/u);
+  assert.equal(note.filename, "Sources/x-12.md");
 });
 
 test("renders a captured external page as source material", () => {

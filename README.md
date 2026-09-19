@@ -197,8 +197,10 @@ npm run preview:enrich -- --post=1496273922714902528 --refresh-synthesis
 `--post` enriches one saved post without replacing the full preview index.
 `--refresh-synthesis` replaces only its cached whole-post synthesis while
 reusing downloaded media, OCR, and translations.
-Generated note filenames use underscores instead of spaces for reliable
-Obsidian wikilinks; note titles and headings retain their readable spacing.
+Generated captures use stable `Sources/x-<post_id>.md` filenames, so links
+survive title changes. Each capture links to a human-owned
+`Reviews/x-<post_id>.md` note, created only if absent. Edit its `status`, notes,
+and decisions freely; preview rebuilds never overwrite it.
 
 Outputs are written to:
 
@@ -213,9 +215,11 @@ Obsidian vault. Post synthesis is cached by model, prompt, and source
 fingerprint, while media extraction is cached by model and media ID, so
 rerunning the same or an overlapping snapshot does not repeat successful paid
 calls. `npm run preview` reuses matching cached translation, vision, and
-synthesis results without making paid calls. It also reconciles generated
-notes by post ID, removing stale title-based filenames only inside
-`data/obsidian-preview/`; a real vault is never touched. Media is also archived
+synthesis results without making paid calls. Generated source notes are refreshed by post ID inside
+`data/obsidian-preview/Sources/`; a real vault is never touched. Legacy
+title-based notes at the preview root are left untouched to preserve existing
+edits and links. They are excluded from the new Base views; manually migrate
+any annotations before removing those legacy copies. Media is also archived
 by media ID; normalization and Markdown rendering may run again because they
 are local and deterministic. Root screenshots are
 archived and analyzed. Attached videos up to 10 minutes are archived at a
@@ -234,6 +238,42 @@ captured continuation, external pages not yet captured, pending visual or
 translation work, and pending synthesis. Model uncertainty remains beside its
 specific media item rather than flooding the queue.
 
+## Browse and review in Obsidian
+
+Open `data/obsidian-preview/` as a vault and open `Library.base`. Its views cover
+captures, topics, source gaps, relevance, and human review status. `Sources/`
+is generated; edit review status and decisions in `Reviews/`. The Base provides
+links between them. Titles in existing review notes are deliberately not
+refreshed. `Library.base` itself is generated; duplicate it under another name
+before customizing the views. This does not configure sync to your real vault.
+
+## Agent retrieval (no model calls)
+
+```bash
+npm run --silent search -- "Obsidian recipes" --limit=10
+npm run --silent read-post -- 2095482394513924178
+```
+
+Both commands emit JSON, read the latest canonical snapshot, and perform no
+network requests. Search returns compact cards, ranking scores, source gaps,
+and paths relative to the preview vault. Read-post returns full captured
+fragments and referenced context without excerpt truncation, separate generated
+metadata, and provenance pointers. It omits duplicate raw API payloads.
+Missing/invalid post IDs fail with a nonzero exit code and a stderr message.
+Search uses whole-word lexical matches weighted by collection rarity; captured
+text has twice the weight of metadata-only matches, and repetition adds no
+weight. Ties use recency. Search retains zero-score fallback cards, so a
+returned card is not proof of relevance. Agents should read selected records before citing evidence.
+
+See [the agent workflow and evaluation](docs/agent-workflow.md). Run
+`npm run --silent eval:retrieval` to measure the initial real-question cases
+against your local collection. It intentionally exits nonzero when expected
+posts miss the top ten; it is separate from unit tests and needs those captures.
+On the September 20 evaluation of 384 posts, 8 of 9 cases pass, including
+5 of 6 natural-language variants. One broad query ranks an expected source
+14th, outside both the evaluation cutoff and the default `ask` limit. This
+documented limitation does not fail the portable unit-test suite.
+
 ## Ask the collection
 
 Use the canonical records for natural-language recommendations instead of
@@ -243,12 +283,16 @@ asking an LLM to infer identity from Obsidian filenames:
 npm run ask -- "Give me some ideas for improvements in my codebase that would make my work faster"
 ```
 
-The command searches the latest normalized snapshot, sends compact matching
-cards to the configured OpenRouter model, and prints actionable ideas with
-links back to the supporting X posts. It does not perform web search and does
-not change the vault. Lexical matches are ranked first, with recent fallback
-cards retained so semantic recommendations are not limited to exact query
-words. `--limit=120` increases the number of candidate posts sent
+The `ask` command searches the latest normalized snapshot and sends up to 12
+positive-score candidates to the configured OpenRouter model. Each includes
+compact metadata, source gaps, and up to three query-selected source windows
+of 1,000 characters, including passages deep in articles or quoted context.
+Window locations refer to the full `read-post` record. These are bounded
+excerpts, not full articles; use `read-post` when more context is needed. The
+command prints actionable ideas with supporting X links, or can abstain when
+the supplied evidence does not support recommendations. It does not perform web search and does
+not change the vault. Only positive-score matches are sent by `ask`; a query without any
+lexical matches fails locally without calling the model. `--limit=20` increases the number of candidate posts sent
 to the model. Set `OPENROUTER_QUERY_MODEL` to choose the query model; it falls
 back to `OPENROUTER_SYNTHESIS_MODEL`.
 

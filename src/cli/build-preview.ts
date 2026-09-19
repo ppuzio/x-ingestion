@@ -18,6 +18,7 @@ import type {
   Translation,
 } from "../model.ts";
 import { shouldArchiveVideo } from "../model.ts";
+import { renderLibraryBase } from "../obsidian/base.ts";
 import {
   renderObsidianNote,
   type ConceptVocabulary,
@@ -36,11 +37,11 @@ import {
   mapWithConcurrency,
   modelDirectory,
   parseArgument,
-  reconcileGeneratedPreviewNotes,
   readJson,
   requiredEnvironmentVariable,
   runMain,
   saveJson,
+  writePreviewNote,
 } from "./util.ts";
 
 const previewRoot = resolve("data/obsidian-preview");
@@ -449,13 +450,9 @@ async function main(): Promise<void> {
       await prepareTranslation(post, apiKey, translationModel);
       await prepareSynthesis(post, apiKey, synthesisModel, refreshSynthesis);
       const note = renderObsidianNote(post, conceptVocabulary);
-      await writeFile(resolve(previewRoot, note.filename), note.markdown, "utf8");
+      await writePreviewNote(previewRoot, note);
       return { id: post.id, ...note };
     },
-  );
-  const removed = await reconcileGeneratedPreviewNotes(
-    previewRoot,
-    new Map(rendered.map(({ id, filename }) => [id, filename])),
   );
 
   const normalizedPath = resolve(
@@ -464,6 +461,7 @@ async function main(): Promise<void> {
   );
   await saveJson(normalizedPath, posts);
   if (!postId) {
+    await writeFile(resolve(previewRoot, "Library.base"), renderLibraryBase(), "utf8");
     await writeFile(resolve(previewRoot, "_Review_Queue.md"), reviewQueue(posts, rendered), "utf8");
     await writeFile(
       resolve(previewRoot, "_Index.md"),
@@ -471,6 +469,9 @@ async function main(): Promise<void> {
         "# X likes preview",
         "",
         "- [[_Review_Queue|Review queue]]",
+        "- [[Library.base|Browse captures and reviews]]",
+        "",
+        "Generated captures live in `Sources/`; personal review notes live in `Reviews/` and are never overwritten. Legacy title-based notes at the vault root are left untouched.",
         "",
         ...rendered.map(({ filename, title }) => `- [[${filename.slice(0, -3)}|${title}]]`),
         "",
@@ -482,7 +483,6 @@ async function main(): Promise<void> {
   console.log(
     `Generated ${posts.length} preview notes in ${previewRoot}${enrich ? " with configured enrichment" : ""}`,
   );
-  if (removed.length) console.log(`Removed ${removed.length} stale preview note(s)`);
   console.log(`Saved canonical records to ${normalizedPath}`);
 }
 
