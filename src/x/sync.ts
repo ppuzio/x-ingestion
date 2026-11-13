@@ -83,11 +83,37 @@ export async function writeSyncState(
   await writeJson(path, state);
 }
 
-/** Hashes the unchanged X post payload, independent of like/bookmark source. */
+/** Link-card metadata X re-scrapes on every request; not part of the post. */
+const VOLATILE_URL_FIELDS = ["description", "images", "status", "title", "unwound_url"];
+
+/**
+ * Drops fields X recomputes on each request (engagement counts, edit window,
+ * link-card previews) so an untouched post keeps the same fingerprint.
+ */
+export function stableRawPost(rawPost: unknown): unknown {
+  const candidate = object(rawPost);
+  if (!candidate) return rawPost;
+  const { public_metrics: _metrics, edit_controls: _edit, ...rest } = candidate;
+  const entities = object(rest.entities);
+  if (entities && Array.isArray(entities.urls)) {
+    rest.entities = {
+      ...entities,
+      urls: entities.urls.map((url) => {
+        const fields = object(url);
+        if (!fields) return url;
+        return Object.fromEntries(
+          Object.entries(fields).filter(([key]) => !VOLATILE_URL_FIELDS.includes(key)),
+        );
+      }),
+    };
+  }
+  return rest;
+}
+
+/** Hashes the stable X post payload, independent of like/bookmark source. */
 export function captureFingerprint(post: SavedPost): string {
   const rawPosts = post.rawSources
-    .map(({ post: rawPost }) => rawPost)
-    .map((rawPost) => JSON.stringify(rawPost))
+    .map(({ post: rawPost }) => JSON.stringify(stableRawPost(rawPost)))
     .filter((rawPost, index, values) => values.indexOf(rawPost) === index)
     .sort();
   return createHash("sha256")

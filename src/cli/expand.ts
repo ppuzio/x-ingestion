@@ -1,4 +1,4 @@
-import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
+import { rawCollectionSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import {
   externalUrlsForPost,
   expandExternalLinks,
@@ -11,7 +11,7 @@ import { parseLimitArgument, requiredEnvironmentVariable, runMain } from "./util
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
   const limit = parseLimitArgument(process.argv);
-  const snapshots = await latestSnapshots();
+  const snapshots = await rawCollectionSnapshots();
   const initialPosts = (await loadSnapshots(snapshots)).slice(0, limit);
   if (dryRun) {
     const contextCandidates = initialPosts.reduce(
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
 
   // Thread/context captures change the normalized relationships and may expose
   // new external links, so reload before the link pass.
-  const posts = (await loadSnapshots(await latestSnapshots())).slice(0, limit);
+  const posts = (await loadSnapshots(await rawCollectionSnapshots())).slice(0, limit);
   const links = await expandExternalLinks(posts);
   const failures = [...context.failures, ...links.failures];
   console.log(

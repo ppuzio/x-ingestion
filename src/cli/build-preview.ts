@@ -8,7 +8,11 @@ import {
   synthesisFingerprint,
   SYNTHESIS_PROMPT_VERSION,
 } from "../llm/enrich-post.ts";
-import { extractImage, translateText } from "../llm/openrouter.ts";
+import {
+  DEFAULT_OPENROUTER_MODEL,
+  extractImage,
+  translateText,
+} from "../llm/openrouter.ts";
 import type {
   ImageExtraction,
   MediaFragment,
@@ -25,7 +29,7 @@ import {
 } from "../obsidian/render.ts";
 import { sourceGapsForPost, type SourceGap, type SourceGapKind } from "../x/expand.ts";
 import {
-  latestSnapshots,
+  rawCollectionSnapshots,
   loadSnapshots,
   snapshotPattern,
 } from "../x/snapshots.ts";
@@ -416,15 +420,15 @@ async function main(): Promise<void> {
   const requestedSnapshot = arguments_.find((argument) => !argument.startsWith("--"));
   const snapshots = requestedSnapshot
     ? [resolve(requestedSnapshot)]
-    : await latestSnapshots();
+    : await rawCollectionSnapshots();
   const visionModel =
-    process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct";
+    process.env.OPENROUTER_VISION_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL;
   const translationModel =
     process.env.OPENROUTER_TRANSLATION_MODEL?.trim() ||
-    "qwen/qwen3-vl-32b-instruct";
+    DEFAULT_OPENROUTER_MODEL;
   const synthesisModel =
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
-    "qwen/qwen3-vl-32b-instruct";
+    DEFAULT_OPENROUTER_MODEL;
   const allPosts = await loadSnapshots(snapshots);
   await hydrateCachedSourceContext(allPosts);
   const verificationModel =

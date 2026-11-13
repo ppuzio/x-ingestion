@@ -7,6 +7,7 @@ import test from "node:test";
 import { promisify } from "node:util";
 
 import type { SavedPost } from "../model.ts";
+import { DEFAULT_OPENROUTER_MODEL } from "../llm/openrouter.ts";
 import { synthesisFingerprint, SYNTHESIS_PROMPT_VERSION } from "../llm/enrich-post.ts";
 import { renderObsidianNote } from "../obsidian/render.ts";
 import {
@@ -175,7 +176,7 @@ test("rewrites captures by stable id without changing or deleting personal notes
 test("hydrates a video's vision cache written without the frames suffix", async () => {
   const enrichmentRoot = await mkdtemp(resolve(tmpdir(), "x-ingestion-vision-"));
   try {
-    const visionRoot = resolve(enrichmentRoot, "vision", "qwen_qwen3-vl-32b-instruct");
+    const visionRoot = resolve(enrichmentRoot, "vision", modelDirectory(DEFAULT_OPENROUTER_MODEL));
     await mkdir(visionRoot, { recursive: true });
     // A video without an mp4 variant is analysed as a still, so the preview
     // writes `<mediaKey>.json` rather than `<mediaKey>-frames.json`.

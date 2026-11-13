@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { DEFAULT_OPENROUTER_MODEL } from "../llm/openrouter.ts";
 import {
   RELEVANCE_TRIAGE_VERSION,
   oldestFirst,
@@ -9,7 +10,7 @@ import {
   type RelevanceStatus,
 } from "../llm/triage-relevance.ts";
 import type { SavedPost } from "../model.ts";
-import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
+import { rawCollectionSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import {
   applyRelevanceOverride,
   loadCachedAssessment,
@@ -76,7 +77,7 @@ async function main(): Promise<void> {
   const postIds = parseArguments(process.argv, "post");
   const refresh = process.argv.includes("--refresh");
 
-  const allPosts = oldestFirst(await loadSnapshots(await latestSnapshots()));
+  const allPosts = oldestFirst(await loadSnapshots(await rawCollectionSnapshots()));
   await hydrateCachedSourceContext(allPosts);
   const posts = postIds.length
     ? allPosts.filter(({ id }) => postIds.includes(id))
@@ -88,7 +89,7 @@ async function main(): Promise<void> {
   const model =
     process.env.OPENROUTER_TRIAGE_MODEL?.trim() ||
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
-    "qwen/qwen3-vl-32b-instruct";
+    DEFAULT_OPENROUTER_MODEL;
   const cacheRoot = resolve(
     "data/enrichment/relevance-triage",
     RELEVANCE_TRIAGE_VERSION,

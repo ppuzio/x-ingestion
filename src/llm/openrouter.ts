@@ -1,6 +1,9 @@
 import { object, strings, type JsonObject } from "../json.ts";
 import type { ImageExtraction, Translation } from "../model.ts";
 
+/** Vision/translation/synthesis/triage default; override per stage via OPENROUTER_*_MODEL. */
+export const DEFAULT_OPENROUTER_MODEL = "qwen/qwen3.7-plus";
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TIMEOUT_MS = 2 * 60 * 1_000;
 

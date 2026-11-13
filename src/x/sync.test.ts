@@ -68,3 +68,35 @@ test("reconciles new, changed, unchanged, and overlapping captures", () => {
   assert.ok(result.state.posts["2"]);
   assert.ok(result.state.posts["3"]);
 });
+
+test("fingerprint ignores engagement counts, edit window, and link-card previews", () => {
+  const withRaw = (raw: Record<string, unknown>): SavedPost => ({
+    ...post("1", "same"),
+    rawSources: [{ method: "like", snapshot: "data/raw/like.json", post: raw }],
+  });
+  const url = { start: 0, end: 23, expanded_url: "https://example.com/a" };
+  const before = withRaw({
+    id: "1",
+    text: "same",
+    public_metrics: { like_count: 1 },
+    edit_controls: { edits_remaining: 5 },
+    entities: { urls: [{ ...url, title: "Old", description: "old", images: [{ url: "a" }] }] },
+  });
+  const after = withRaw({
+    id: "1",
+    text: "same",
+    public_metrics: { like_count: 99 },
+    edit_controls: { edits_remaining: 0 },
+    entities: { urls: [{ ...url, title: "New", description: "new", images: [{ url: "b" }], status: 200 }] },
+  });
+  assert.equal(captureFingerprint(before), captureFingerprint(after));
+
+  const edited = withRaw({ id: "1", text: "different", entities: { urls: [url] } });
+  assert.notEqual(captureFingerprint(before), captureFingerprint(edited));
+  const relinked = withRaw({
+    id: "1",
+    text: "same",
+    entities: { urls: [{ ...url, expanded_url: "https://example.com/b" }] },
+  });
+  assert.notEqual(captureFingerprint(before), captureFingerprint(relinked));
+});

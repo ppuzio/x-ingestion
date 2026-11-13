@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { object, string } from "../json.ts";
-import type { UrlCitation } from "../llm/openrouter.ts";
+import { DEFAULT_OPENROUTER_MODEL, type UrlCitation } from "../llm/openrouter.ts";
 import {
   RELEVANCE_TRIAGE_VERSION,
   oldestFirst,
@@ -21,7 +21,7 @@ import {
   type VerificationVerdict,
 } from "../llm/verify-relevance.ts";
 import type { SavedPost } from "../model.ts";
-import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
+import { rawCollectionSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import {
   datedDirectories,
   exists,
@@ -198,13 +198,13 @@ async function main(): Promise<void> {
   const reportOnly = process.argv.includes("--report-only");
   const limit = parseLimitArgument(process.argv);
 
-  const posts = oldestFirst(await loadSnapshots(await latestSnapshots()));
+  const posts = oldestFirst(await loadSnapshots(await rawCollectionSnapshots()));
   await hydrateCachedSourceContext(posts);
   const apiKey = requiredEnvironmentVariable("OPENROUTER_KEY");
   const triageModel =
     process.env.OPENROUTER_TRIAGE_MODEL?.trim() ||
     process.env.OPENROUTER_SYNTHESIS_MODEL?.trim() ||
-    "qwen/qwen3-vl-32b-instruct";
+    DEFAULT_OPENROUTER_MODEL;
   const model =
     process.env.OPENROUTER_VERIFICATION_MODEL?.trim() || "openai/gpt-5.6-luna";
   const searchModel =

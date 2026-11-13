@@ -522,3 +522,27 @@ test("keeps only the focal author's reachable thread continuation", () => {
     { kind: "link", source: "post", url: "https://example.com/thread-resource" },
   ]);
 });
+
+test("merging repeated captures keeps the newest copy and one raw source per method", () => {
+  const capture = (text: string, snapshot: string, capturedAt: string, method: "like" | "bookmark") =>
+    normalizeLikesResponse(
+      { data: [{ id: "1", author_id: "10", text }], includes: { users: [{ id: "10", username: "a" }] } },
+      snapshot,
+      capturedAt,
+      method,
+    )[0]!;
+  const [merged] = mergeSavedPosts([
+    capture("newest", "data/raw/likes-3.json", "2026-01-03T00:00:00Z", "like"),
+    capture("older", "data/raw/likes-2.json", "2026-01-02T00:00:00Z", "like"),
+    capture("bookmark", "data/raw/bookmarks-1.json", "2026-01-01T00:00:00Z", "bookmark"),
+    capture("oldest", "data/raw/likes-1.json", "2026-01-01T00:00:00Z", "like"),
+  ]);
+  assert.equal(merged?.capturedAt, "2026-01-03T00:00:00Z");
+  assert.deepEqual(
+    merged?.rawSources.map(({ method, snapshot }) => [method, snapshot]),
+    [
+      ["like", "data/raw/likes-3.json"],
+      ["bookmark", "data/raw/bookmarks-1.json"],
+    ],
+  );
+});

@@ -4,7 +4,7 @@ import { collapseWhitespace } from "./text.ts";
 import { sourceGapsForPost, type SourceGap } from "./x/expand.ts";
 import {
   latestNormalizedSnapshot,
-  latestSnapshots,
+  rawCollectionSnapshots,
   loadSnapshots,
 } from "./x/snapshots.ts";
 
@@ -291,5 +291,5 @@ export async function loadLatestPosts(): Promise<SavedPost[]> {
     return parsed;
   }
 
-  return loadSnapshots(await latestSnapshots());
+  return loadSnapshots(await rawCollectionSnapshots());
 }

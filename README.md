@@ -37,10 +37,10 @@ X_REFRESH_TOKEN=your_refresh_token
 X_CLIENT_ID=your_oauth_2_client_id
 X_ARCHIVE_BEARER_TOKEN=your_optional_app_only_bearer_token
 OPENROUTER_KEY=your_openrouter_key
-OPENROUTER_VISION_MODEL=qwen/qwen3-vl-32b-instruct
-OPENROUTER_TRANSLATION_MODEL=qwen/qwen3-vl-32b-instruct
-OPENROUTER_SYNTHESIS_MODEL=qwen/qwen3-vl-32b-instruct
-OPENROUTER_TRIAGE_MODEL=qwen/qwen3-vl-32b-instruct
+OPENROUTER_VISION_MODEL=qwen/qwen3.7-plus
+OPENROUTER_TRANSLATION_MODEL=qwen/qwen3.7-plus
+OPENROUTER_SYNTHESIS_MODEL=qwen/qwen3.7-plus
+OPENROUTER_TRIAGE_MODEL=qwen/qwen3.7-plus
 OPENROUTER_VOCABULARY_MODEL=openai/gpt-5.6-luna
 OPENROUTER_VERIFICATION_MODEL=openai/gpt-5.6-luna
 OPENROUTER_SEARCH_MODEL=openai/gpt-5.6-luna
@@ -64,7 +64,14 @@ optional, separate app-only token; likes and bookmarks continue to use
 ```bash
 npm run fetch:x
 npm run fetch:x -- --refresh
+npm run fetch:x -- --full
 ```
+
+Fetches are incremental: paging stops after the first page whose posts were
+all captured by an earlier run (per `data/state/sync.json`). `--full` pages
+through the whole collection. Every stage reads all raw pages together and
+keeps the newest copy of each post, so a post stays in the collection after it
+is unliked or unbookmarked.
 
 `--refresh` explicitly replaces a rejected user access token using the saved
 OAuth 2.0 refresh token; ordinary `403` responses remain non-refreshing.

@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { DEFAULT_OPENROUTER_MODEL } from "../llm/openrouter.ts";
 import {
   parseRelevanceAssessments,
   protectRelevanceAssessments,
@@ -89,11 +90,11 @@ export async function hydrateCachedSourceContext(
   enrichmentRoot = resolve("data/enrichment"),
 ): Promise<void> {
   const visionModel = modelDirectory(
-    process.env.OPENROUTER_VISION_MODEL?.trim() || "qwen/qwen3-vl-32b-instruct",
+    process.env.OPENROUTER_VISION_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL,
   );
   const translationModel = modelDirectory(
     process.env.OPENROUTER_TRANSLATION_MODEL?.trim() ||
-      "qwen/qwen3-vl-32b-instruct",
+      DEFAULT_OPENROUTER_MODEL,
   );
   for (const post of posts) {
     for (const fragment of post.fragments) {

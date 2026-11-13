@@ -30,7 +30,7 @@ calls. See [the agent workflow](agent-workflow.md).
 | --- | --- | --- | --- |
 | Capture | `npm run fetch:x` | X likes and bookmarks endpoints | Byte-for-byte pages in `data/raw/` |
 | Sync bookkeeping | (part of capture) | Current post IDs and source payloads | `data/state/sync.json` with fingerprints and capture methods |
-| Expand | `npm run expand` | Latest raw pages | Optional thread/context JSON, external HTML, and media captures |
+| Expand | `npm run expand` | All raw pages, newest copy per post | Optional thread/context JSON, external HTML, and media captures |
 | Normalize | `npm run preview` | Raw pages plus expansion captures | One `SavedPost` record per post ID, retaining `rawSources` |
 | Enrich | `npm run preview:enrich` | Canonical records and media | Cached OCR, video-frame analysis, translation, and synthesis |
 | Render | (part of preview) | Ready-to-render `SavedPost` records | `data/normalized/` and `data/obsidian-preview/` |
@@ -42,7 +42,7 @@ calls. See [the agent workflow](agent-workflow.md).
 ## Commands
 
 ```bash
-npm run fetch:x       # fetch likes and bookmarks; save raw pages
+npm run fetch:x       # fetch new likes and bookmarks (--full for all); save raw pages
 npm run expand        # reuse raw pages; capture missing threads, context, links
 npm run preview       # normalize and render without paid enrichment
 npm run preview:enrich # add cached/optional OpenRouter enrichment

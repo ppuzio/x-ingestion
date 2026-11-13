@@ -386,7 +386,11 @@ export function mergeSavedPosts(posts: SavedPost[]): SavedPost[] {
     newest.captureMethods = [
       ...new Set([...existing.captureMethods, ...post.captureMethods]),
     ];
-    newest.rawSources = [...newest.rawSources, ...older.rawSources];
+    // One raw source per capture method: the newest like and newest bookmark.
+    newest.rawSources = [...newest.rawSources, ...older.rawSources].filter(
+      (source, index, sources) =>
+        sources.findIndex((candidate) => candidate.method === source.method) === index,
+    );
     merged.set(post.id, newest);
   }
   return [...merged.values()];

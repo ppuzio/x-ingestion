@@ -4,14 +4,14 @@ import {
   captureContextForPost,
   captureThreadForPost,
 } from "../x/expand.ts";
-import { latestSnapshots, loadSnapshots } from "../x/snapshots.ts";
+import { rawCollectionSnapshots, loadSnapshots } from "../x/snapshots.ts";
 import { parseArgument, requiredEnvironmentVariable, runMain } from "./util.ts";
 
 async function main(): Promise<void> {
   const postId = parseArgument(process.argv, "post");
   if (!postId) throw new Error("Pass the saved thread opener as --post=<X post ID>");
   const contextId = parseArgument(process.argv, "context");
-  const post = (await loadSnapshots(await latestSnapshots())).find(
+  const post = (await loadSnapshots(await rawCollectionSnapshots())).find(
     ({ id }) => id === postId,
   );
   if (!post) throw new Error(`Saved post ${postId} was not found`);

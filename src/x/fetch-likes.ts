@@ -3,11 +3,19 @@ import { resolve } from "node:path";
 
 import { fetchUserPostsRaw, type XCollection } from "./client.ts";
 
+/**
+ * A routine incremental run usually finds only a few new saves, so the first
+ * request asks for a small page; later pages use the API maximum of 100.
+ */
+const INCREMENTAL_FIRST_PAGE_SIZE = 10;
+
 export interface FetchAndSaveCollectionOptions {
   bearerToken: string;
   userId: string;
   collection: XCollection;
   maxPosts?: number;
+  /** IDs already captured for this collection; paging stops at a page with none unseen. */
+  knownIds?: ReadonlySet<string>;
   now?: Date;
   outputDirectory?: string;
 }
@@ -17,11 +25,13 @@ export async function fetchAndSaveCollection({
   userId,
   collection,
   maxPosts = 1_000,
+  knownIds,
   now = new Date(),
   outputDirectory = resolve("data/raw"),
 }: FetchAndSaveCollectionOptions): Promise<{
   paths: string[];
   postCount: number;
+  reachedKnown: boolean;
 }> {
   if (!Number.isInteger(maxPosts) || maxPosts < 5 || maxPosts > 1_000) {
     throw new Error("maxPosts must be an integer from 5 to 1000");
@@ -40,7 +50,7 @@ export async function fetchAndSaveCollection({
       userId,
       collection,
       maxResults: Math.min(
-        100,
+        paths.length === 0 && knownIds?.size ? INCREMENTAL_FIRST_PAGE_SIZE : 100,
         Math.max(collection === "likes" ? 5 : 1, maxPosts - postCount),
       ),
       ...(paginationToken ? { paginationToken } : {}),
@@ -60,7 +70,15 @@ export async function fetchAndSaveCollection({
     if (response.data !== undefined && !Array.isArray(response.data)) {
       throw new Error(`X ${collection} response data must be an array`);
     }
-    postCount += Array.isArray(response.data) ? response.data.length : 0;
+    const ids = (Array.isArray(response.data) ? response.data : []).map(
+      (post) => (post as { id?: unknown }).id,
+    );
+    postCount += ids.length;
+    // X returns newest saves first, so a page of only known posts means the
+    // rest of the collection was captured by an earlier run.
+    if (knownIds && ids.length && ids.every((id) => typeof id === "string" && knownIds.has(id))) {
+      return { paths, postCount, reachedKnown: true };
+    }
     const nextToken = response.meta?.next_token;
     if (typeof nextToken !== "string") break;
     if (seenTokens.has(nextToken)) {
@@ -70,5 +88,5 @@ export async function fetchAndSaveCollection({
     paginationToken = nextToken;
   }
 
-  return { paths, postCount };
+  return { paths, postCount, reachedKnown: false };
 }
